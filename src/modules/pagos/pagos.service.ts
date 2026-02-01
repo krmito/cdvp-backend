@@ -192,15 +192,31 @@ export class PagosService {
   }
 
   private async generarNumeroRecibo(): Promise<string> {
-    const config = await this.configuracionRepository.findOne({
+    let config = await this.configuracionRepository.findOne({
       where: { clave: 'numero_recibo_actual' },
     });
 
-    let numeroActual = config ? parseInt(config.valor) : 1;
-    const nuevoNumero = numeroActual + 1;
+    let numeroActual: number;
 
     if (config) {
-      config.valor = nuevoNumero.toString();
+      numeroActual = parseInt(config.valor) + 1;
+      config.valor = numeroActual.toString();
+      await this.configuracionRepository.save(config);
+    } else {
+      // Crear el registro si no existe
+      const ultimoPago = await this.pagoRepository
+        .createQueryBuilder('pago')
+        .select('MAX(pago.id)', 'max')
+        .getRawOne();
+
+      numeroActual = (ultimoPago?.max || 0) + 1;
+
+      config = this.configuracionRepository.create({
+        clave: 'numero_recibo_actual',
+        valor: numeroActual.toString(),
+        tipo: 'number',
+        descripcion: 'Número de recibo actual para generación automática',
+      });
       await this.configuracionRepository.save(config);
     }
 
