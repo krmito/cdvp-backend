@@ -246,16 +246,16 @@ export class MensualidadesService {
       mes,
       anio,
       total_mensualidades: totalMensualidades,
+      total_jugadores: totalMensualidades,
       total_esperado: totalEsperado,
       total_recaudado: totalRecaudado,
       total_pendiente: totalPendiente,
-      porcentaje_recaudo: totalEsperado > 0 ? (totalRecaudado / totalEsperado) * 100 : 0,
-      estados: {
-        pagadas,
-        pendientes,
-        vencidas,
-        parciales,
-      },
+      porcentaje_recaudo: totalEsperado > 0 ? Math.round((totalRecaudado / totalEsperado) * 100) : 0,
+      porcentaje_cumplimiento: totalMensualidades > 0 ? Math.round((pagadas / totalMensualidades) * 100) : 0,
+      pagadas,
+      pendientes,
+      vencidas,
+      parciales,
     };
   }
 
