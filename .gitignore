@@ -22,7 +22,4 @@ lerna-debug.log*
 # temp directory
 .temp
 .tmp
-<<<<<<< HEAD
-=======
 .claude
->>>>>>> 202b410 (Primer commit)
