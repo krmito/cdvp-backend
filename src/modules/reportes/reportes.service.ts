@@ -35,10 +35,12 @@ export class ReportesService {
         .andWhere('mensualidad.mes = :mes', { mes })
         .andWhere('mensualidad.anio = :anio', { anio });
     } else if (fechaInicio && fechaFin) {
-      // Si no, filtrar por fecha de pago
+      // Si no, filtrar por fecha de pago usando rangos completos de datetime
+      const fechaInicioDatetime = new Date(fechaInicio + 'T00:00:00');
+      const fechaFinDatetime = new Date(fechaFin + 'T23:59:59.999');
       query
-        .andWhere('DATE(pago.fecha_pago) >= :fechaInicio', { fechaInicio })
-        .andWhere('DATE(pago.fecha_pago) <= :fechaFin', { fechaFin });
+        .andWhere('pago.fecha_pago >= :fechaInicioDatetime', { fechaInicioDatetime })
+        .andWhere('pago.fecha_pago <= :fechaFinDatetime', { fechaFinDatetime });
     }
 
     const pagos = await query.orderBy('pago.fecha_pago', 'ASC').getMany();
