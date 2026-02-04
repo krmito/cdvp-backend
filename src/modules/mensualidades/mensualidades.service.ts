@@ -105,6 +105,9 @@ export class MensualidadesService {
     const { skip, limit, sortBy = 'id', sortOrder = 'DESC' } = filterDto;
     const { jugador_id, mes, anio, estado } = filterDto;
 
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+
     const query = this.mensualidadRepository
       .createQueryBuilder('mensualidad')
       .leftJoinAndSelect('mensualidad.jugador', 'jugador')
@@ -124,8 +127,23 @@ export class MensualidadesService {
       query.andWhere('mensualidad.anio = :anio', { anio });
     }
 
+    // Filtro de estado con lógica de vencimiento por fecha
     if (estado) {
-      query.andWhere('mensualidad.estado = :estado', { estado });
+      if (estado === 'vencido') {
+        // Vencidas: NO pagadas Y fecha_vencimiento < hoy
+        query.andWhere('mensualidad.estado != :estadoPagado', { estadoPagado: EstadoMensualidad.PAGADO });
+        query.andWhere('mensualidad.fecha_vencimiento < :hoy', { hoy });
+      } else if (estado === 'pendiente') {
+        // Pendientes: estado pendiente Y fecha_vencimiento >= hoy
+        query.andWhere('mensualidad.estado = :estado', { estado });
+        query.andWhere('mensualidad.fecha_vencimiento >= :hoy', { hoy });
+      } else if (estado === 'parcial') {
+        // Parciales: estado parcial Y fecha_vencimiento >= hoy
+        query.andWhere('mensualidad.estado = :estado', { estado });
+        query.andWhere('mensualidad.fecha_vencimiento >= :hoy', { hoy });
+      } else {
+        query.andWhere('mensualidad.estado = :estado', { estado });
+      }
     }
 
     // Ordenamiento
@@ -136,8 +154,20 @@ export class MensualidadesService {
 
     const [mensualidades, total] = await query.getManyAndCount();
 
+    // Actualizar el estado mostrado basado en fecha_vencimiento
+    const mensualidadesConEstadoActualizado = mensualidades.map(m => {
+      const fechaVenc = new Date(m.fecha_vencimiento);
+      fechaVenc.setHours(0, 0, 0, 0);
+
+      // Si no está pagada y la fecha de vencimiento ya pasó, mostrar como vencido
+      if (m.estado !== EstadoMensualidad.PAGADO && fechaVenc < hoy) {
+        return { ...m, estado: EstadoMensualidad.VENCIDO };
+      }
+      return m;
+    });
+
     return PaginatedResultHelper.create(
-      mensualidades,
+      mensualidadesConEstadoActualizado,
       total,
       filterDto.page,
       limit,
