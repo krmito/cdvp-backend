@@ -232,15 +232,40 @@ export class MensualidadesService {
       relations: ['jugador', 'pagos'],
     });
 
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+
     const totalMensualidades = mensualidades.length;
     const totalEsperado = mensualidades.reduce((sum, m) => sum + Number(m.monto), 0);
     const totalRecaudado = mensualidades.reduce((sum, m) => sum + Number(m.monto_pagado), 0);
     const totalPendiente = totalEsperado - totalRecaudado;
 
+    // Pagadas: estado es PAGADO
     const pagadas = mensualidades.filter(m => m.estado === EstadoMensualidad.PAGADO).length;
-    const pendientes = mensualidades.filter(m => m.estado === EstadoMensualidad.PENDIENTE).length;
-    const vencidas = mensualidades.filter(m => m.estado === EstadoMensualidad.VENCIDO).length;
-    const parciales = mensualidades.filter(m => m.estado === EstadoMensualidad.PARCIAL).length;
+
+    // Vencidas: NO pagadas Y fecha_vencimiento < hoy (basado en fecha, no en estado)
+    const vencidas = mensualidades.filter(m => {
+      if (m.estado === EstadoMensualidad.PAGADO) return false;
+      const fechaVenc = new Date(m.fecha_vencimiento);
+      fechaVenc.setHours(0, 0, 0, 0);
+      return fechaVenc < hoy;
+    }).length;
+
+    // Pendientes: estado PENDIENTE Y fecha_vencimiento >= hoy (aún no vencidas)
+    const pendientes = mensualidades.filter(m => {
+      if (m.estado !== EstadoMensualidad.PENDIENTE) return false;
+      const fechaVenc = new Date(m.fecha_vencimiento);
+      fechaVenc.setHours(0, 0, 0, 0);
+      return fechaVenc >= hoy;
+    }).length;
+
+    // Parciales: estado PARCIAL Y fecha_vencimiento >= hoy (aún no vencidas)
+    const parciales = mensualidades.filter(m => {
+      if (m.estado !== EstadoMensualidad.PARCIAL) return false;
+      const fechaVenc = new Date(m.fecha_vencimiento);
+      fechaVenc.setHours(0, 0, 0, 0);
+      return fechaVenc >= hoy;
+    }).length;
 
     return {
       mes,
