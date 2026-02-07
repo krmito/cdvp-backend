@@ -241,14 +241,27 @@ export class ReportesService {
       (m) => m.estado === EstadoMensualidad.PAGADO,
     ).length;
 
-    // Mensualidades pendientes y vencidas del mes actual
+    // Mensualidades pendientes del mes actual
     const mensualidadesPendientes = mensualidadesMesActual.filter(
       (m) => m.estado === EstadoMensualidad.PENDIENTE,
     ).length;
 
-    const mensualidadesVencidas = mensualidadesMesActual.filter(
-      (m) => m.estado === EstadoMensualidad.VENCIDO,
-    ).length;
+    // Mensualidades vencidas: todas las no pagadas con fecha_vencimiento pasada (cualquier mes)
+    const mensualidadesVencidas = await this.mensualidadRepository.count({
+      where: [
+        {
+          estado: EstadoMensualidad.VENCIDO,
+        },
+        {
+          estado: EstadoMensualidad.PENDIENTE,
+          fecha_vencimiento: LessThan(hoy),
+        },
+        {
+          estado: EstadoMensualidad.PARCIAL,
+          fecha_vencimiento: LessThan(hoy),
+        },
+      ],
+    });
 
     return {
       jugadores: {
