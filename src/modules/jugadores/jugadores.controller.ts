@@ -8,7 +8,13 @@ import {
   Delete,
   Query,
   ParseIntPipe,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname } from 'path';
 import {
   ApiTags,
   ApiOperation,
@@ -93,6 +99,45 @@ export class JugadoresController {
   @ApiResponse({ status: 200, description: 'Estado cambiado' })
   toggleActive(@Param('id', ParseIntPipe) id: number) {
     return this.jugadoresService.toggleActive(id);
+  }
+
+  @Post(':id/foto')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.TESORERO)
+  @ApiOperation({ summary: 'Subir foto de perfil del jugador' })
+  @ApiResponse({ status: 200, description: 'Foto actualizada' })
+  @ApiResponse({ status: 400, description: 'Archivo inválido' })
+  @ApiResponse({ status: 404, description: 'Jugador no encontrado' })
+  @UseInterceptors(
+    FileInterceptor('foto', {
+      storage: diskStorage({
+        destination: './uploads/jugadores',
+        filename: (req, file, cb) => {
+          const id = req.params.id;
+          const timestamp = Date.now();
+          const ext = extname(file.originalname).toLowerCase();
+          cb(null, `${id}-${timestamp}${ext}`);
+        },
+      }),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png)$/)) {
+          cb(new BadRequestException('Solo se permiten archivos JPG y PNG'), false);
+          return;
+        }
+        cb(null, true);
+      },
+      limits: {
+        fileSize: 2 * 1024 * 1024, // 2MB
+      },
+    }),
+  )
+  subirFoto(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No se envió ningún archivo');
+    }
+    return this.jugadoresService.subirFoto(id, file);
   }
 
   @Delete(':id')

@@ -4,6 +4,8 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, ILike } from 'typeorm';
 import { Jugador } from '@entities/jugador.entity';
@@ -224,6 +226,35 @@ export class JugadoresService {
       },
       historial_pagos: jugador.pagos,
       mensualidades: jugador.mensualidades,
+    };
+  }
+
+  async subirFoto(id: number, file: Express.Multer.File) {
+    const jugador = await this.jugadorRepository.findOne({
+      where: { id },
+    });
+
+    if (!jugador) {
+      // Eliminar archivo subido si el jugador no existe
+      fs.unlinkSync(file.path);
+      throw new NotFoundException(`Jugador con ID ${id} no encontrado`);
+    }
+
+    // Eliminar foto anterior si existe
+    if (jugador.foto_url) {
+      const oldPath = path.join(process.cwd(), jugador.foto_url.replace(/^\//, ''));
+      if (fs.existsSync(oldPath)) {
+        fs.unlinkSync(oldPath);
+      }
+    }
+
+    // Guardar nueva ruta
+    jugador.foto_url = `/uploads/jugadores/${file.filename}`;
+    await this.jugadorRepository.save(jugador);
+
+    return {
+      message: 'Foto actualizada exitosamente',
+      foto_url: jugador.foto_url,
     };
   }
 
