@@ -7,11 +7,13 @@ import {
   Param,
   Delete,
   Query,
+  Res,
   ParseIntPipe,
   UseInterceptors,
   UploadedFile,
   BadRequestException,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
@@ -25,6 +27,7 @@ import { JugadoresService } from './jugadores.service';
 import { CreateJugadorDto } from './dto/create-jugador.dto';
 import { UpdateJugadorDto } from './dto/update-jugador.dto';
 import { FilterJugadorDto } from './dto/filter-jugador.dto';
+import { BulkImportJugadorDto } from './dto/bulk-import-jugador.dto';
 import { Roles } from '@common/decorators/roles.decorator';
 import { UserRole } from '@entities/usuario.entity';
 
@@ -55,6 +58,28 @@ export class JugadoresController {
   @ApiResponse({ status: 200, description: 'Estadísticas' })
   getStats() {
     return this.jugadoresService.getStats();
+  }
+
+  @Post('bulk-import')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.TESORERO)
+  @ApiOperation({ summary: 'Importar jugadores masivamente desde Excel' })
+  @ApiResponse({ status: 201, description: 'Resultado de la importacion' })
+  bulkImport(@Body() bulkImportDto: BulkImportJugadorDto) {
+    return this.jugadoresService.bulkImport(bulkImportDto.jugadores);
+  }
+
+  @Get('plantilla-excel')
+  @ApiOperation({ summary: 'Descargar plantilla Excel para importacion' })
+  @ApiResponse({ status: 200, description: 'Archivo Excel descargado' })
+  async downloadPlantilla(@Res() res: Response) {
+    const buffer = await this.jugadoresService.generatePlantilla();
+    res.set({
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition':
+        'attachment; filename=plantilla_jugadores.xlsx',
+    });
+    res.send(buffer);
   }
 
   @Get(':id')
