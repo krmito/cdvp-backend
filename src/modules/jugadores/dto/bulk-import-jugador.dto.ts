@@ -53,10 +53,6 @@ export class BulkImportRowDto {
   @IsOptional()
   @IsString()
   posicion?: string;
-
-  @IsOptional()
-  @IsString()
-  talla_camisa?: string;
 }
 
 export class BulkImportJugadorDto {

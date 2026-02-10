@@ -427,7 +427,6 @@ export class JugadoresService {
         direccion: row.direccion?.trim() || null,
         telefono_acudiente: row.telefono_acudiente?.trim() || null,
         posicion: row.posicion?.trim() || null,
-        talla_camisa: row.talla_camisa?.trim() || null,
         activo: true,
       });
 
@@ -527,31 +526,29 @@ export class JugadoresService {
     const headers = [
       'nombre*',
       'apellido*',
+      'tipo_documento',
       'documento*',
       'fecha_nacimiento*',
       'telefono*',
-      'categoria*',
+      'telefono_acudiente',
       'email',
       'direccion',
-      'tipo_documento',
-      'telefono_acudiente',
+      'categoria*',
       'posicion',
-      'talla_camisa',
     ];
 
     const ejemplo = [
       'Juan',
       'Perez Garcia',
+      'TI',
       '1234567890',
       '20/05/2015',
       '3001234567',
-      categorias.length > 0 ? categorias[0].nombre : 'Sub-13',
+      '3109876543',
       'juan@email.com',
       'Calle 10 #20-30',
-      'TI',
-      '3109876543',
+      categorias.length > 0 ? categorias[0].nombre : 'Sub-13',
       'Delantero',
-      'M',
     ];
 
     const wsData = [headers, ejemplo];
@@ -559,18 +556,17 @@ export class JugadoresService {
 
     // Ajustar anchos de columna
     ws['!cols'] = [
-      { wch: 15 },
-      { wch: 20 },
-      { wch: 15 },
-      { wch: 18 },
-      { wch: 15 },
-      { wch: 15 },
-      { wch: 25 },
-      { wch: 25 },
-      { wch: 16 },
-      { wch: 18 },
-      { wch: 15 },
-      { wch: 14 },
+      { wch: 15 },  // nombre
+      { wch: 20 },  // apellido
+      { wch: 16 },  // tipo_documento
+      { wch: 15 },  // documento
+      { wch: 18 },  // fecha_nacimiento
+      { wch: 15 },  // telefono
+      { wch: 18 },  // telefono_acudiente
+      { wch: 25 },  // email
+      { wch: 25 },  // direccion
+      { wch: 15 },  // categoria
+      { wch: 15 },  // posicion
     ];
 
     XLSX.utils.book_append_sheet(wb, ws, 'Jugadores');
@@ -580,41 +576,19 @@ export class JugadoresService {
       ['INSTRUCCIONES PARA IMPORTAR JUGADORES'],
       [''],
       ['Campos obligatorios (marcados con *):'],
-      [
-        'nombre*',
-        'Nombre del jugador',
-      ],
-      [
-        'apellido*',
-        'Apellido(s) del jugador',
-      ],
-      [
-        'documento*',
-        'Numero de documento unico (no repetible)',
-      ],
-      [
-        'fecha_nacimiento*',
-        'Formato DD/MM/AAAA o AAAA-MM-DD',
-      ],
-      [
-        'telefono*',
-        'Numero de telefono',
-      ],
-      [
-        'categoria*',
-        'Nombre exacto de una categoria activa (ver lista abajo)',
-      ],
+      ['nombre*', 'Nombre del jugador'],
+      ['apellido*', 'Apellido(s) del jugador'],
+      ['documento*', 'Numero de documento unico (no repetible)'],
+      ['fecha_nacimiento*', 'Formato DD/MM/AAAA o AAAA-MM-DD'],
+      ['telefono*', 'Numero de telefono'],
+      ['categoria*', 'Nombre exacto de una categoria activa (ver lista abajo)'],
       [''],
       ['Campos opcionales:'],
+      ['tipo_documento', 'Tipo de documento (CC, TI, CE, RC, PA). Por defecto: CC'],
+      ['telefono_acudiente', 'Telefono del acudiente'],
       ['email', 'Correo electronico'],
       ['direccion', 'Direccion de residencia'],
-      [
-        'tipo_documento',
-        'Tipo de documento (CC, TI, CE, etc). Por defecto: CC',
-      ],
-      ['telefono_acudiente', 'Telefono del acudiente'],
       ['posicion', 'Posicion en el campo (Delantero, Mediocampista, etc)'],
-      ['talla_camisa', 'Talla de camisa (XS, S, M, L, XL)'],
       [''],
       ['CATEGORIAS DISPONIBLES:'],
     ];
