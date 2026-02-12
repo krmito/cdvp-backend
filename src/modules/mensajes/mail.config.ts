@@ -17,8 +17,8 @@ export const MailerModuleConfig = MailerModule.forRootAsync({
       mailUser && mailPassword
         ? {
             host: config.get<string>('MAIL_HOST', 'smtp.gmail.com'),
-            port: config.get<number>('MAIL_PORT', 587),
-            secure: false,
+            port: config.get<number>('MAIL_PORT', 465),
+            secure: true,
             auth: {
               user: mailUser,
               pass: mailPassword,
@@ -26,9 +26,9 @@ export const MailerModuleConfig = MailerModule.forRootAsync({
             tls: {
               rejectUnauthorized: false,
             },
-            connectionTimeout: 10000,
-            greetingTimeout: 10000,
-            socketTimeout: 10000,
+            connectionTimeout: 15000,
+            greetingTimeout: 15000,
+            socketTimeout: 15000,
           }
         : {
             jsonTransport: true,
