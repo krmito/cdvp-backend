@@ -15,7 +15,7 @@ export class NotificacionesCronService {
     private readonly notificacionesService: NotificacionesService,
   ) {}
 
-  @Cron('0 8 * * *', { timeZone: 'America/Bogota' })
+  @Cron('0 8 * * *', { name: 'recordatorios-vencimiento', timeZone: 'America/Bogota' })
   async enviarRecordatoriosVencimiento() {
     this.logger.log('Ejecutando cron de recordatorios de vencimiento...');
 
