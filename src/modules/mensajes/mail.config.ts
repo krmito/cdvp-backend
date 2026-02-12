@@ -10,6 +10,9 @@ export const MailerModuleConfig = MailerModule.forRootAsync({
     const mailPassword = config.get<string>('MAIL_PASSWORD');
 
     // Si no hay credenciales SMTP, usar transport JSON (solo loguea, no envía)
+    // Log para verificar configuración al iniciar
+    console.log(`[MailerModule] MAIL_USER configurado: ${mailUser ? 'Sí' : 'No'}`);
+
     const transport =
       mailUser && mailPassword
         ? {
@@ -20,6 +23,12 @@ export const MailerModuleConfig = MailerModule.forRootAsync({
               user: mailUser,
               pass: mailPassword,
             },
+            tls: {
+              rejectUnauthorized: false,
+            },
+            connectionTimeout: 10000,
+            greetingTimeout: 10000,
+            socketTimeout: 10000,
           }
         : {
             jsonTransport: true,
