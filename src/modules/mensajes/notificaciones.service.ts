@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { MailerService } from '@nestjs-modules/mailer';
 import { ConfigService } from '@nestjs/config';
+import { Resend } from 'resend';
 import { Jugador } from '@entities/jugador.entity';
 import { Mensualidad } from '@entities/mensualidad.entity';
 
@@ -12,15 +12,27 @@ const MESES = [
 @Injectable()
 export class NotificacionesService {
   private readonly logger = new Logger(NotificacionesService.name);
+  private readonly resend: Resend | null;
+  private readonly fromEmail: string;
   private readonly clubName: string;
   private readonly clubPhone: string;
 
-  constructor(
-    private readonly mailerService: MailerService,
-    private readonly configService: ConfigService,
-  ) {
+  constructor(private readonly configService: ConfigService) {
+    const apiKey = this.configService.get<string>('RESEND_API_KEY');
+    this.fromEmail = this.configService.get<string>(
+      'RESEND_FROM',
+      'Club Deportivo <onboarding@resend.dev>',
+    );
     this.clubName = this.configService.get<string>('CLUB_NAME', 'Club Deportivo Pancho Villegas');
     this.clubPhone = this.configService.get<string>('CLUB_PHONE', '');
+
+    if (apiKey) {
+      this.resend = new Resend(apiKey);
+      this.logger.log('Resend configurado correctamente');
+    } else {
+      this.resend = null;
+      this.logger.warn('RESEND_API_KEY no configurada — los emails no se enviarán');
+    }
   }
 
   private getRecipients(jugador: Jugador): string[] {
@@ -38,36 +50,154 @@ export class NotificacionesService {
     return `${day}/${month}/${year}`;
   }
 
+  private buildNuevaMensualidadHtml(ctx: {
+    jugadorNombre: string;
+    categoria: string;
+    mesNombre: string;
+    anio: number;
+    monto: string;
+    fechaVencimiento: string;
+  }): string {
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }
+    .container { max-width: 600px; margin: 20px auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .header { background-color: #1a73e8; color: white; padding: 24px; text-align: center; }
+    .header h1 { margin: 0; font-size: 22px; }
+    .content { padding: 24px; color: #333; }
+    .content h2 { color: #1a73e8; font-size: 18px; margin-top: 0; }
+    .info-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    .info-table td { padding: 10px 12px; border-bottom: 1px solid #eee; }
+    .info-table td:first-child { font-weight: bold; color: #555; width: 40%; }
+    .amount { font-size: 24px; font-weight: bold; color: #1a73e8; text-align: center; padding: 16px; background: #e8f0fe; border-radius: 8px; margin: 16px 0; }
+    .footer { background-color: #f8f9fa; padding: 16px 24px; text-align: center; color: #666; font-size: 13px; border-top: 1px solid #eee; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>${this.clubName}</h1>
+    </div>
+    <div class="content">
+      <h2>Nueva Mensualidad Generada</h2>
+      <p>Hola, se ha generado una nueva mensualidad para <strong>${ctx.jugadorNombre}</strong>.</p>
+      <table class="info-table">
+        <tr><td>Jugador</td><td>${ctx.jugadorNombre}</td></tr>
+        <tr><td>Categor\u00eda</td><td>${ctx.categoria}</td></tr>
+        <tr><td>Per\u00edodo</td><td>${ctx.mesNombre} ${ctx.anio}</td></tr>
+        <tr><td>Fecha de vencimiento</td><td>${ctx.fechaVencimiento}</td></tr>
+      </table>
+      <div class="amount">Monto: $${ctx.monto}</div>
+      <p>Por favor realice el pago antes de la fecha de vencimiento para evitar recargos.</p>
+    </div>
+    <div class="footer">
+      <p>${this.clubName} | Tel: ${this.clubPhone}</p>
+      <p>Este es un mensaje autom\u00e1tico, por favor no responda a este correo.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+  }
+
+  private buildRecordatorioHtml(ctx: {
+    jugadorNombre: string;
+    categoria: string;
+    mesNombre: string;
+    anio: number;
+    saldoPendiente: string;
+    fechaVencimiento: string;
+  }): string {
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }
+    .container { max-width: 600px; margin: 20px auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .header { background-color: #e8a400; color: white; padding: 24px; text-align: center; }
+    .header h1 { margin: 0; font-size: 22px; }
+    .content { padding: 24px; color: #333; }
+    .content h2 { color: #e8a400; font-size: 18px; margin-top: 0; }
+    .info-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    .info-table td { padding: 10px 12px; border-bottom: 1px solid #eee; }
+    .info-table td:first-child { font-weight: bold; color: #555; width: 40%; }
+    .amount { font-size: 24px; font-weight: bold; color: #e8a400; text-align: center; padding: 16px; background: #fff8e1; border-radius: 8px; margin: 16px 0; }
+    .warning { background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 12px 16px; margin: 16px 0; color: #856404; }
+    .footer { background-color: #f8f9fa; padding: 16px 24px; text-align: center; color: #666; font-size: 13px; border-top: 1px solid #eee; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>${this.clubName}</h1>
+    </div>
+    <div class="content">
+      <h2>Recordatorio de Pago</h2>
+      <p>Hola, le recordamos que la mensualidad de <strong>${ctx.jugadorNombre}</strong> est\u00e1 pr\u00f3xima a vencer.</p>
+      <div class="warning">
+        La fecha de vencimiento es el <strong>${ctx.fechaVencimiento}</strong>. Quedan 2 d\u00edas para realizar el pago.
+      </div>
+      <table class="info-table">
+        <tr><td>Jugador</td><td>${ctx.jugadorNombre}</td></tr>
+        <tr><td>Categor\u00eda</td><td>${ctx.categoria}</td></tr>
+        <tr><td>Per\u00edodo</td><td>${ctx.mesNombre} ${ctx.anio}</td></tr>
+        <tr><td>Fecha de vencimiento</td><td>${ctx.fechaVencimiento}</td></tr>
+      </table>
+      <div class="amount">Saldo pendiente: $${ctx.saldoPendiente}</div>
+      <p>Por favor realice el pago a la mayor brevedad para evitar recargos.</p>
+    </div>
+    <div class="footer">
+      <p>${this.clubName} | Tel: ${this.clubPhone}</p>
+      <p>Este es un mensaje autom\u00e1tico, por favor no responda a este correo.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+  }
+
   async enviarNotificacionNuevaMensualidad(
     jugador: Jugador,
     mensualidad: Mensualidad,
   ): Promise<void> {
+    if (!this.resend) {
+      this.logger.warn('Resend no configurado — email no enviado');
+      return;
+    }
+
     const recipients = this.getRecipients(jugador);
     if (recipients.length === 0) {
       this.logger.warn(`Jugador ${jugador.id} (${jugador.nombre} ${jugador.apellido}) no tiene emails configurados`);
       return;
     }
 
-    const context = {
+    const ctx = {
       jugadorNombre: `${jugador.nombre} ${jugador.apellido}`,
       categoria: jugador.categoria?.nombre || 'N/A',
       mesNombre: MESES[mensualidad.mes] || `Mes ${mensualidad.mes}`,
       anio: mensualidad.anio,
       monto: Number(mensualidad.monto).toLocaleString('es-CO'),
       fechaVencimiento: this.formatFecha(mensualidad.fecha_vencimiento),
-      clubName: this.clubName,
-      clubPhone: this.clubPhone,
     };
+
+    const subject = `Nueva mensualidad ${MESES[mensualidad.mes]} ${mensualidad.anio} - ${this.clubName}`;
+    const html = this.buildNuevaMensualidadHtml(ctx);
 
     for (const to of recipients) {
       try {
-        await this.mailerService.sendMail({
+        const { error } = await this.resend.emails.send({
+          from: this.fromEmail,
           to,
-          subject: `Nueva mensualidad ${MESES[mensualidad.mes]} ${mensualidad.anio} - ${this.clubName}`,
-          template: 'nueva-mensualidad',
-          context,
+          subject,
+          html,
         });
-        this.logger.log(`Email nueva mensualidad enviado a ${to} (Jugador: ${jugador.nombre} ${jugador.apellido})`);
+        if (error) {
+          this.logger.error(`Error enviando email a ${to}: ${error.message}`);
+        } else {
+          this.logger.log(`Email nueva mensualidad enviado a ${to} (Jugador: ${jugador.nombre} ${jugador.apellido})`);
+        }
       } catch (error) {
         this.logger.error(`Error enviando email a ${to}: ${error.message}`);
       }
@@ -78,29 +208,39 @@ export class NotificacionesService {
     jugador: Jugador,
     mensualidad: Mensualidad,
   ): Promise<void> {
+    if (!this.resend) {
+      this.logger.warn('Resend no configurado — email no enviado');
+      return;
+    }
+
     const recipients = this.getRecipients(jugador);
     if (recipients.length === 0) return;
 
-    const context = {
+    const ctx = {
       jugadorNombre: `${jugador.nombre} ${jugador.apellido}`,
       categoria: jugador.categoria?.nombre || 'N/A',
       mesNombre: MESES[mensualidad.mes] || `Mes ${mensualidad.mes}`,
       anio: mensualidad.anio,
       saldoPendiente: Number(mensualidad.saldo_pendiente).toLocaleString('es-CO'),
       fechaVencimiento: this.formatFecha(mensualidad.fecha_vencimiento),
-      clubName: this.clubName,
-      clubPhone: this.clubPhone,
     };
+
+    const subject = `Recordatorio de pago - ${MESES[mensualidad.mes]} ${mensualidad.anio} - ${this.clubName}`;
+    const html = this.buildRecordatorioHtml(ctx);
 
     for (const to of recipients) {
       try {
-        await this.mailerService.sendMail({
+        const { error } = await this.resend.emails.send({
+          from: this.fromEmail,
           to,
-          subject: `Recordatorio de pago - ${MESES[mensualidad.mes]} ${mensualidad.anio} - ${this.clubName}`,
-          template: 'recordatorio-vencimiento',
-          context,
+          subject,
+          html,
         });
-        this.logger.log(`Recordatorio enviado a ${to} (Jugador: ${jugador.nombre} ${jugador.apellido})`);
+        if (error) {
+          this.logger.error(`Error enviando recordatorio a ${to}: ${error.message}`);
+        } else {
+          this.logger.log(`Recordatorio enviado a ${to} (Jugador: ${jugador.nombre} ${jugador.apellido})`);
+        }
       } catch (error) {
         this.logger.error(`Error enviando recordatorio a ${to}: ${error.message}`);
       }
@@ -122,7 +262,7 @@ export class NotificacionesService {
         errores++;
         this.logger.error(`Error en envío masivo para jugador ${jugador.id}: ${error.message}`);
       }
-      // Delay de 200ms entre emails para respetar rate limit de Gmail
+      // Delay de 200ms entre emails para respetar rate limits
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
 
