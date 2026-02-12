@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
@@ -11,9 +12,12 @@ import { Configuracion } from '@entities/configuracion.entity';
 import { GenerarMensualidadesDto, UpdateMensualidadDto } from './dto/generar-mensualidades.dto';
 import { FilterMensualidadDto } from './dto/filter-mensualidad.dto';
 import { PaginatedResultHelper } from '@common/dto/paginated-result.interface';
+import { NotificacionesService } from '../mensajes/notificaciones.service';
 
 @Injectable()
 export class MensualidadesService {
+  private readonly logger = new Logger(MensualidadesService.name);
+
   constructor(
     @InjectRepository(Mensualidad)
     private readonly mensualidadRepository: Repository<Mensualidad>,
@@ -21,6 +25,7 @@ export class MensualidadesService {
     private readonly jugadorRepository: Repository<Jugador>,
     @InjectRepository(Configuracion)
     private readonly configuracionRepository: Repository<Configuracion>,
+    private readonly notificacionesService: NotificacionesService,
   ) {}
 
   async generarMensualidades(dto: GenerarMensualidadesDto) {
@@ -89,7 +94,14 @@ export class MensualidadesService {
       });
 
       const saved = await this.mensualidadRepository.save(mensualidad);
-      mensualidadesCreadas.push(saved);
+      mensualidadesCreadas.push({ jugador, mensualidad: saved });
+    }
+
+    // Fire-and-forget: enviar notificaciones sin bloquear la respuesta HTTP
+    if (mensualidadesCreadas.length > 0) {
+      this.notificacionesService
+        .enviarNotificacionesMasivas(mensualidadesCreadas)
+        .catch((err) => this.logger.error(`Error en envío masivo: ${err.message}`));
     }
 
     return {

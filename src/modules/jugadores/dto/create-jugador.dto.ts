@@ -84,6 +84,14 @@ export class CreateJugadorDto {
   @IsEmail()
   email?: string;
 
+  @ApiPropertyOptional({
+    description: 'Email del acudiente',
+    example: 'acudiente@email.com',
+  })
+  @IsOptional()
+  @IsEmail()
+  email_acudiente?: string;
+
   @ApiProperty({
     description: 'ID de la categoría',
     example: 1,

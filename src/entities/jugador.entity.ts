@@ -43,6 +43,9 @@ export class Jugador {
   @Column({ type: 'varchar', length: 100, nullable: true })
   email: string;
 
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  email_acudiente: string;
+
   @Column({ type: 'varchar', length: 50, nullable: true })
   posicion: string;
 

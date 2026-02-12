@@ -1,11 +1,18 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ScheduleModule } from '@nestjs/schedule';
+import { Mensualidad } from '@entities/mensualidad.entity';
+import { MailerModuleConfig } from './mail.config';
+import { NotificacionesService } from './notificaciones.service';
+import { NotificacionesCronService } from './notificaciones-cron.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([])],
-  controllers: [],
-  providers: [],
-  exports: [TypeOrmModule],
+  imports: [
+    MailerModuleConfig,
+    ScheduleModule.forRoot(),
+    TypeOrmModule.forFeature([Mensualidad]),
+  ],
+  providers: [NotificacionesService, NotificacionesCronService],
+  exports: [NotificacionesService],
 })
 export class MensajesModule {}
-// Este módulo está vacío - funcionalidad opcional para Fase 2
