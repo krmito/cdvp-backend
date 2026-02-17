@@ -247,6 +247,87 @@ export class NotificacionesService {
     }
   }
 
+  private buildRecordatorioGenerarMensualidadesHtml(ctx: {
+    mesNombre: string;
+    anio: number;
+  }): string {
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }
+    .container { max-width: 600px; margin: 20px auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .header { background-color: #1a73e8; color: white; padding: 24px; text-align: center; }
+    .header h1 { margin: 0; font-size: 22px; }
+    .content { padding: 24px; color: #333; }
+    .content h2 { color: #1a73e8; font-size: 18px; margin-top: 0; }
+    .info-box { background: #e8f0fe; border-radius: 8px; padding: 16px; margin: 16px 0; text-align: center; }
+    .info-box .mes { font-size: 24px; font-weight: bold; color: #1a73e8; }
+    .footer { background-color: #f8f9fa; padding: 16px 24px; text-align: center; color: #666; font-size: 13px; border-top: 1px solid #eee; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>${this.clubName}</h1>
+    </div>
+    <div class="content">
+      <h2>Recordatorio: Generar Mensualidades</h2>
+      <p>Hola Administrador,</p>
+      <p>Es inicio de mes. Recuerde generar las mensualidades correspondientes al mes actual desde el panel de administración.</p>
+      <div class="info-box">
+        <div class="mes">${ctx.mesNombre} ${ctx.anio}</div>
+      </div>
+      <p>Ingrese al sistema y diríjase a la sección de mensualidades para realizar la generación.</p>
+    </div>
+    <div class="footer">
+      <p>${this.clubName} | Tel: ${this.clubPhone}</p>
+      <p>Este es un mensaje automático, por favor no responda a este correo.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+  }
+
+  async enviarRecordatorioGenerarMensualidades(emails: string[]): Promise<void> {
+    if (!this.resend) {
+      this.logger.warn('Resend no configurado — email no enviado');
+      return;
+    }
+
+    if (emails.length === 0) {
+      this.logger.warn('No hay emails de administradores para enviar recordatorio');
+      return;
+    }
+
+    const ahora = new Date();
+    const mes = ahora.getMonth() + 1;
+    const anio = ahora.getFullYear();
+    const mesNombre = MESES[mes] || `Mes ${mes}`;
+
+    const subject = `Recordatorio: Generar mensualidades de ${mesNombre} ${anio} - ${this.clubName}`;
+    const html = this.buildRecordatorioGenerarMensualidadesHtml({ mesNombre, anio });
+
+    for (const to of emails) {
+      try {
+        const { error } = await this.resend.emails.send({
+          from: this.fromEmail,
+          to,
+          subject,
+          html,
+        });
+        if (error) {
+          this.logger.error(`Error enviando recordatorio a admin ${to}: ${error.message}`);
+        } else {
+          this.logger.log(`Recordatorio de generar mensualidades enviado a ${to}`);
+        }
+      } catch (error) {
+        this.logger.error(`Error enviando recordatorio a admin ${to}: ${error.message}`);
+      }
+    }
+  }
+
   async enviarNotificacionesMasivas(
     lista: { jugador: Jugador; mensualidad: Mensualidad }[],
   ): Promise<void> {
