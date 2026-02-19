@@ -3,7 +3,6 @@ import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Mensualidad, EstadoMensualidad } from '@entities/mensualidad.entity';
-import { Usuario, UserRole } from '@entities/usuario.entity';
 import { NotificacionesService } from './notificaciones.service';
 
 @Injectable()
@@ -13,8 +12,6 @@ export class NotificacionesCronService {
   constructor(
     @InjectRepository(Mensualidad)
     private readonly mensualidadRepository: Repository<Mensualidad>,
-    @InjectRepository(Usuario)
-    private readonly usuarioRepository: Repository<Usuario>,
     private readonly notificacionesService: NotificacionesService,
   ) {}
 
@@ -66,31 +63,6 @@ export class NotificacionesCronService {
       this.logger.log('Cron de recordatorios finalizado');
     } catch (error) {
       this.logger.error(`Error en cron de recordatorios: ${error.message}`);
-    }
-  }
-
-  @Cron('0 8 1 * *', { name: 'recordatorio-generar-mensualidades', timeZone: 'America/Bogota' })
-  async recordatorioGenerarMensualidades() {
-    this.logger.log('Ejecutando cron de recordatorio para generar mensualidades...');
-
-    try {
-      const admins = await this.usuarioRepository.find({
-        where: { rol: UserRole.ADMINISTRADOR, activo: true },
-      });
-
-      if (admins.length === 0) {
-        this.logger.warn('No se encontraron administradores activos para notificar');
-        return;
-      }
-
-      const emails = admins.map((admin) => admin.email);
-      this.logger.log(`Enviando recordatorio a ${emails.length} administrador(es)`);
-
-      await this.notificacionesService.enviarRecordatorioGenerarMensualidades(emails);
-
-      this.logger.log('Cron de recordatorio de generar mensualidades finalizado');
-    } catch (error) {
-      this.logger.error(`Error en cron de recordatorio de mensualidades: ${error.message}`);
     }
   }
 }

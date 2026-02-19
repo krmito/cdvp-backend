@@ -368,6 +368,63 @@ export class MensualidadesService {
     };
   }
 
+  async generarMensualidadParaNuevoJugador(jugador: Jugador): Promise<void> {
+    const hoy = new Date();
+    const mes = hoy.getMonth() + 1;
+    const anio = hoy.getFullYear();
+
+    // Verificar si ya existen mensualidades generadas para este mes/año
+    const existente = await this.mensualidadRepository.findOne({
+      where: { mes, anio },
+    });
+
+    if (!existente) {
+      // Aún no se han generado mensualidades este mes — no hacer nada
+      return;
+    }
+
+    // Verificar que este jugador no tenga ya una mensualidad para el período
+    const yaExiste = await this.mensualidadRepository.findOne({
+      where: { jugador: { id: jugador.id }, mes, anio },
+    });
+
+    if (yaExiste) {
+      return;
+    }
+
+    // Asegurar que la categoría esté cargada
+    if (!jugador.categoria) {
+      const jugadorConCategoria = await this.jugadorRepository.findOne({
+        where: { id: jugador.id },
+        relations: ['categoria'],
+      });
+      if (!jugadorConCategoria?.categoria) {
+        this.logger.warn(`Jugador ${jugador.id} no tiene categoría asignada — no se genera mensualidad`);
+        return;
+      }
+      jugador = jugadorConCategoria;
+    }
+
+    const mensualidad = this.mensualidadRepository.create({
+      jugador,
+      mes,
+      anio,
+      monto: jugador.categoria.valor_mensualidad,
+      saldo_pendiente: jugador.categoria.valor_mensualidad,
+      monto_pagado: 0,
+      fecha_vencimiento: existente.fecha_vencimiento,
+      estado: EstadoMensualidad.PENDIENTE,
+    });
+
+    const saved = await this.mensualidadRepository.save(mensualidad);
+    this.logger.log(`Mensualidad auto-generada para jugador ${jugador.id} (${jugador.nombre} ${jugador.apellido}) — ${mes}/${anio}`);
+
+    // Fire-and-forget: notificar al jugador
+    this.notificacionesService
+      .enviarNotificacionNuevaMensualidad(jugador, saved)
+      .catch((err) => this.logger.error(`Error notificando nuevo jugador ${jugador.id}: ${err.message}`));
+  }
+
   async delete(id: number) {
     const mensualidad = await this.findOne(id);
 

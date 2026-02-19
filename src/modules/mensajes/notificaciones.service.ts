@@ -247,9 +247,10 @@ export class NotificacionesService {
     }
   }
 
-  private buildRecordatorioGenerarMensualidadesHtml(ctx: {
+  private buildAutoGeneracionHtml(ctx: {
     mesNombre: string;
     anio: number;
+    generadas: number;
   }): string {
     return `<!DOCTYPE html>
 <html>
@@ -264,6 +265,7 @@ export class NotificacionesService {
     .content h2 { color: #1a73e8; font-size: 18px; margin-top: 0; }
     .info-box { background: #e8f0fe; border-radius: 8px; padding: 16px; margin: 16px 0; text-align: center; }
     .info-box .mes { font-size: 24px; font-weight: bold; color: #1a73e8; }
+    .info-box .count { font-size: 18px; color: #333; margin-top: 8px; }
     .footer { background-color: #f8f9fa; padding: 16px 24px; text-align: center; color: #666; font-size: 13px; border-top: 1px solid #eee; }
   </style>
 </head>
@@ -273,41 +275,43 @@ export class NotificacionesService {
       <h1>${this.clubName}</h1>
     </div>
     <div class="content">
-      <h2>Recordatorio: Generar Mensualidades</h2>
+      <h2>Mensualidades Generadas Autom\u00e1ticamente</h2>
       <p>Hola Administrador,</p>
-      <p>Es inicio de mes. Recuerde generar las mensualidades correspondientes al mes actual desde el panel de administración.</p>
+      <p>Se han generado autom\u00e1ticamente las mensualidades del mes.</p>
       <div class="info-box">
         <div class="mes">${ctx.mesNombre} ${ctx.anio}</div>
+        <div class="count">${ctx.generadas} mensualidad${ctx.generadas !== 1 ? 'es' : ''} generada${ctx.generadas !== 1 ? 's' : ''}</div>
       </div>
-      <p>Ingrese al sistema y diríjase a la sección de mensualidades para realizar la generación.</p>
+      <p>Puede revisar el detalle desde el panel de administraci\u00f3n en la secci\u00f3n de mensualidades.</p>
     </div>
     <div class="footer">
       <p>${this.clubName} | Tel: ${this.clubPhone}</p>
-      <p>Este es un mensaje automático, por favor no responda a este correo.</p>
+      <p>Este es un mensaje autom\u00e1tico, por favor no responda a este correo.</p>
     </div>
   </div>
 </body>
 </html>`;
   }
 
-  async enviarRecordatorioGenerarMensualidades(emails: string[]): Promise<void> {
+  async enviarNotificacionAutoGeneracion(
+    emails: string[],
+    generadas: number,
+    mes: number,
+    anio: number,
+  ): Promise<void> {
     if (!this.resend) {
       this.logger.warn('Resend no configurado — email no enviado');
       return;
     }
 
     if (emails.length === 0) {
-      this.logger.warn('No hay emails de administradores para enviar recordatorio');
+      this.logger.warn('No hay emails de administradores para notificar auto-generaci\u00f3n');
       return;
     }
 
-    const ahora = new Date();
-    const mes = ahora.getMonth() + 1;
-    const anio = ahora.getFullYear();
     const mesNombre = MESES[mes] || `Mes ${mes}`;
-
-    const subject = `Recordatorio: Generar mensualidades de ${mesNombre} ${anio} - ${this.clubName}`;
-    const html = this.buildRecordatorioGenerarMensualidadesHtml({ mesNombre, anio });
+    const subject = `Mensualidades generadas: ${generadas} para ${mesNombre} ${anio} - ${this.clubName}`;
+    const html = this.buildAutoGeneracionHtml({ mesNombre, anio, generadas });
 
     for (const to of emails) {
       try {
@@ -318,12 +322,12 @@ export class NotificacionesService {
           html,
         });
         if (error) {
-          this.logger.error(`Error enviando recordatorio a admin ${to}: ${error.message}`);
+          this.logger.error(`Error enviando notificaci\u00f3n auto-generaci\u00f3n a ${to}: ${error.message}`);
         } else {
-          this.logger.log(`Recordatorio de generar mensualidades enviado a ${to}`);
+          this.logger.log(`Notificaci\u00f3n de auto-generaci\u00f3n enviada a ${to}`);
         }
       } catch (error) {
-        this.logger.error(`Error enviando recordatorio a admin ${to}: ${error.message}`);
+        this.logger.error(`Error enviando notificaci\u00f3n auto-generaci\u00f3n a ${to}: ${error.message}`);
       }
     }
   }

@@ -16,6 +16,7 @@ import { UpdateJugadorDto } from './dto/update-jugador.dto';
 import { FilterJugadorDto } from './dto/filter-jugador.dto';
 import { BulkImportRowDto } from './dto/bulk-import-jugador.dto';
 import { PaginatedResultHelper } from '@common/dto/paginated-result.interface';
+import { MensualidadesService } from '../mensualidades/mensualidades.service';
 
 @Injectable()
 export class JugadoresService {
@@ -25,6 +26,7 @@ export class JugadoresService {
     @InjectRepository(Categoria)
     private readonly categoriaRepository: Repository<Categoria>,
     private readonly dataSource: DataSource,
+    private readonly mensualidadesService: MensualidadesService,
   ) {}
 
   async create(createJugadorDto: CreateJugadorDto) {
@@ -52,6 +54,11 @@ export class JugadoresService {
     });
 
     await this.jugadorRepository.save(jugador);
+
+    // Fire-and-forget: auto-generar mensualidad si ya se generaron las del mes
+    this.mensualidadesService
+      .generarMensualidadParaNuevoJugador(jugador)
+      .catch(() => {});
 
     return {
       message: 'Jugador registrado exitosamente',
@@ -459,6 +466,13 @@ export class JugadoresService {
       } finally {
         await queryRunner.release();
       }
+    }
+
+    // Fire-and-forget: generar mensualidades para los jugadores importados si ya se generaron las del mes
+    if (exitosos > 0) {
+      this.mensualidadesService
+        .generarMensualidades({})
+        .catch(() => {});
     }
 
     return {
