@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ConflictException,
   BadRequestException,
@@ -20,6 +21,8 @@ import { MensualidadesService } from '../mensualidades/mensualidades.service';
 
 @Injectable()
 export class JugadoresService {
+  private readonly logger = new Logger(JugadoresService.name);
+
   constructor(
     @InjectRepository(Jugador)
     private readonly jugadorRepository: Repository<Jugador>,
@@ -58,7 +61,7 @@ export class JugadoresService {
     // Fire-and-forget: auto-generar mensualidad si ya se generaron las del mes
     this.mensualidadesService
       .generarMensualidadParaNuevoJugador(jugador)
-      .catch(() => {});
+      .catch((err) => this.logger.error(`Error auto-generando mensualidad para jugador ${jugador.id}: ${err.message}`));
 
     return {
       message: 'Jugador registrado exitosamente',
@@ -472,7 +475,7 @@ export class JugadoresService {
     if (exitosos > 0) {
       this.mensualidadesService
         .generarMensualidades({})
-        .catch(() => {});
+        .catch((err) => this.logger.error(`Error auto-generando mensualidades post-import: ${err.message}`));
     }
 
     return {
