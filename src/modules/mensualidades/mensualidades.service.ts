@@ -373,16 +373,6 @@ export class MensualidadesService {
     const mes = hoy.getMonth() + 1;
     const anio = hoy.getFullYear();
 
-    // Verificar si ya existen mensualidades generadas para este mes/año
-    const existente = await this.mensualidadRepository.findOne({
-      where: { mes, anio },
-    });
-
-    if (!existente) {
-      // Aún no se han generado mensualidades este mes — no hacer nada
-      return;
-    }
-
     // Verificar que este jugador no tenga ya una mensualidad para el período
     const yaExiste = await this.mensualidadRepository.findOne({
       where: { jugador: { id: jugador.id }, mes, anio },
@@ -405,6 +395,14 @@ export class MensualidadesService {
       jugador = jugadorConCategoria;
     }
 
+    // Intentar copiar fecha_vencimiento de una mensualidad existente del mes, o calcular 30 días
+    const existente = await this.mensualidadRepository.findOne({
+      where: { mes, anio },
+    });
+    const fechaVencimiento = existente
+      ? existente.fecha_vencimiento
+      : new Date(Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 30, 12, 0, 0));
+
     const mensualidad = this.mensualidadRepository.create({
       jugador,
       mes,
@@ -412,7 +410,7 @@ export class MensualidadesService {
       monto: jugador.categoria.valor_mensualidad,
       saldo_pendiente: jugador.categoria.valor_mensualidad,
       monto_pagado: 0,
-      fecha_vencimiento: existente.fecha_vencimiento,
+      fecha_vencimiento: fechaVencimiento,
       estado: EstadoMensualidad.PENDIENTE,
     });
 
