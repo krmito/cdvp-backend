@@ -62,6 +62,23 @@ export class PagosController {
     return this.pagosService.getPorMetodo(metodo);
   }
 
+  @Get(':id/recibo-pdf')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.TESORERO)
+  @ApiOperation({ summary: 'Generar recibo PDF de un pago' })
+  @ApiResponse({ status: 200, description: 'PDF del recibo' })
+  async getReciboPdf(
+    @Param('id', ParseIntPipe) id: number,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.pagosService.generarReciboPdf(id);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="recibo-${id}.pdf"`);
+    res.setHeader('Content-Length', buffer.length);
+
+    res.send(buffer);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Obtener un pago por ID' })
   @ApiResponse({ status: 200, description: 'Pago encontrado' })
