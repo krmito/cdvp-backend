@@ -504,7 +504,7 @@ export class JugadoresService {
     documento?: string;
     fecha_nacimiento?: string;
   }> {
-    const apiKey = this.configService.get<string>('GEMINI_API_KEY') || 'AIzaSyDeIB1dz0-v0Y5rgcNRJtO4i68mkhOoAI0';
+    const apiKey = this.configService.get<string>('GEMINI_API_KEY') || 'TU_KEY_AQUI';
 
     const base64Image = file.buffer.toString('base64');
 
