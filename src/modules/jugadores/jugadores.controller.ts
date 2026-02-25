@@ -106,6 +106,13 @@ export class JugadoresController {
     return this.jugadoresService.getHistorialPagos(id);
   }
 
+  @Post(':id/reenviar-notificaciones')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.TESORERO)
+  @ApiOperation({ summary: 'Reenviar notificaciones de mensualidades al correo del jugador' })
+  reenviarNotificaciones(@Param('id', ParseIntPipe) id: number) {
+    return this.jugadoresService.reenviarNotificaciones(id);
+  }
+
   @Patch(':id')
   @Roles(UserRole.ADMINISTRADOR, UserRole.TESORERO)
   @ApiOperation({ summary: 'Actualizar un jugador' })

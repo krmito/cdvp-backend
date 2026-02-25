@@ -490,6 +490,10 @@ export class JugadoresService {
     };
   }
 
+  async reenviarNotificaciones(id: number) {
+    return this.mensualidadesService.reenviarNotificaciones(id);
+  }
+
   private parseFecha(valor: string): Date | null {
     if (!valor) return null;
 

@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan, MoreThan } from 'typeorm';
+import { Repository, LessThan, MoreThan, In } from 'typeorm';
 import { Mensualidad, EstadoMensualidad } from '@entities/mensualidad.entity';
 import { Jugador } from '@entities/jugador.entity';
 import { Configuracion } from '@entities/configuracion.entity';
@@ -421,6 +421,43 @@ export class MensualidadesService {
     this.notificacionesService
       .enviarNotificacionNuevaMensualidad(jugador, saved)
       .catch((err) => this.logger.error(`Error notificando nuevo jugador ${jugador.id}: ${err.message}`));
+  }
+
+  async reenviarNotificaciones(jugadorId: number): Promise<{ message: string; enviadas: number }> {
+    const jugador = await this.jugadorRepository.findOne({
+      where: { id: jugadorId },
+      relations: ['categoria'],
+    });
+
+    if (!jugador) throw new NotFoundException('Jugador no encontrado');
+
+    if (!jugador.email && !jugador.email_acudiente) {
+      throw new BadRequestException('El jugador no tiene correo registrado');
+    }
+
+    const mensualidades = await this.mensualidadRepository.find({
+      where: {
+        jugador: { id: jugadorId },
+        estado: In([EstadoMensualidad.PENDIENTE, EstadoMensualidad.PARCIAL, EstadoMensualidad.VENCIDO]),
+      },
+      order: { anio: 'DESC', mes: 'DESC' },
+    });
+
+    if (mensualidades.length === 0) {
+      return { message: 'No hay mensualidades pendientes para notificar', enviadas: 0 };
+    }
+
+    const lista = mensualidades.map((m) => ({ jugador, mensualidad: m }));
+
+    // Fire-and-forget
+    this.notificacionesService
+      .enviarNotificacionesMasivas(lista)
+      .catch((err) => this.logger.error(`Error reenviando notificaciones jugador ${jugadorId}: ${err.message}`));
+
+    return {
+      message: `Se enviaron ${mensualidades.length} notificaciones`,
+      enviadas: mensualidades.length,
+    };
   }
 
   async delete(id: number) {
