@@ -9,6 +9,7 @@ import {
   Min,
   Max,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateJugadorDto {
@@ -80,6 +81,7 @@ export class CreateJugadorDto {
     description: 'Email',
     example: 'jugador@email.com',
   })
+  @Transform(({ value }) => (value === '' ? undefined : value))
   @IsOptional()
   @IsEmail()
   email?: string;
@@ -88,6 +90,7 @@ export class CreateJugadorDto {
     description: 'Email del acudiente',
     example: 'acudiente@email.com',
   })
+  @Transform(({ value }) => (value === '' ? undefined : value))
   @IsOptional()
   @IsEmail()
   email_acudiente?: string;
