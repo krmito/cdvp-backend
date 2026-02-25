@@ -508,7 +508,11 @@ export class JugadoresService {
   }> {
     const apiKey = this.configService.get<string>('GEMINI_API_KEY') || 'TU_KEY_AQUI';
 
+    this.logger.log(`[extraerDocumento] archivo recibido: ${file.originalname}, mimetype: ${file.mimetype}, tamaño: ${file.size} bytes`);
+    this.logger.log(`[extraerDocumento] API key presente: ${!!apiKey}, primeros 8 chars: ${apiKey.slice(0, 8)}...`);
+
     const base64Image = file.buffer.toString('base64');
+    this.logger.log(`[extraerDocumento] base64 generado, longitud: ${base64Image.length}`);
 
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
@@ -526,12 +530,16 @@ Si no puedes leer un campo con certeza, omítelo del JSON.`;
 
     let result: Awaited<ReturnType<typeof model.generateContent>>;
     try {
+      this.logger.log('[extraerDocumento] llamando a Gemini...');
       result = await model.generateContent([
         prompt,
         { inlineData: { data: base64Image, mimeType: file.mimetype } },
       ]);
+      this.logger.log('[extraerDocumento] respuesta recibida de Gemini');
     } catch (err) {
       const msg: string = err?.message ?? '';
+      this.logger.error(`[extraerDocumento] error de Gemini — status: ${err?.status}, message: ${msg}`);
+      this.logger.error(`[extraerDocumento] error completo: ${JSON.stringify(err, Object.getOwnPropertyNames(err))}`);
       if (msg.includes('429') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('too many requests')) {
         throw new HttpException(
           'Has alcanzado el límite gratuito de escaneos con IA (Gemini Free Tier). ' +
@@ -539,20 +547,25 @@ Si no puedes leer un campo con certeza, omítelo del JSON.`;
           HttpStatus.TOO_MANY_REQUESTS,
         );
       }
-      throw new BadRequestException('Error al comunicarse con el servicio de IA. Intenta nuevamente.');
+      throw new BadRequestException(`Error al comunicarse con el servicio de IA: ${msg}`);
     }
 
     const text = result.response.text().trim();
+    this.logger.log(`[extraerDocumento] texto de respuesta: ${text.slice(0, 200)}`);
 
     // Extraer JSON aunque venga con texto envolvente
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
+      this.logger.warn('[extraerDocumento] no se encontró JSON en la respuesta');
       throw new BadRequestException('No se pudo extraer información del documento');
     }
 
     try {
-      return JSON.parse(jsonMatch[0]);
-    } catch {
+      const parsed = JSON.parse(jsonMatch[0]);
+      this.logger.log(`[extraerDocumento] datos extraídos: ${JSON.stringify(parsed)}`);
+      return parsed;
+    } catch (parseErr) {
+      this.logger.error(`[extraerDocumento] error al parsear JSON: ${parseErr.message}`);
       throw new BadRequestException('Error al procesar la respuesta de IA');
     }
   }
