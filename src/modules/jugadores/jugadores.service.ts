@@ -542,9 +542,14 @@ Si no puedes leer un campo con certeza, omítelo del JSON.`;
       this.logger.error(`[extraerDocumento] error completo: ${JSON.stringify(err, Object.getOwnPropertyNames(err))}`);
       if (msg.includes('429') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('too many requests')) {
         throw new HttpException(
-          'Has alcanzado el límite gratuito de escaneos con IA (Gemini Free Tier). ' +
-          'Para continuar usando esta función, activa un plan de pago en https://ai.google.dev/pricing',
+          'Has alcanzado el límite de escaneos con IA. Para continuar, activa un plan de pago en https://ai.google.dev/pricing',
           HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+      if (msg.includes('API_KEY_INVALID') || msg.toLowerCase().includes('api key not found') || msg.toLowerCase().includes('api key invalid') || msg.includes('403')) {
+        throw new HttpException(
+          'La API key de Gemini no es válida o no está configurada. Debes crear una cuenta en Google AI Studio (aistudio.google.com), generar una API key y asociar un método de pago para usar esta función.',
+          HttpStatus.UNAUTHORIZED,
         );
       }
       throw new BadRequestException(`Error al comunicarse con el servicio de IA: ${msg}`);
