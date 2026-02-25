@@ -4,6 +4,8 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -522,10 +524,23 @@ Responde SOLO con un JSON válido sin texto adicional ni bloques de código:
 }
 Si no puedes leer un campo con certeza, omítelo del JSON.`;
 
-    const result = await model.generateContent([
-      prompt,
-      { inlineData: { data: base64Image, mimeType: file.mimetype } },
-    ]);
+    let result: Awaited<ReturnType<typeof model.generateContent>>;
+    try {
+      result = await model.generateContent([
+        prompt,
+        { inlineData: { data: base64Image, mimeType: file.mimetype } },
+      ]);
+    } catch (err) {
+      const msg: string = err?.message ?? '';
+      if (msg.includes('429') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('too many requests')) {
+        throw new HttpException(
+          'Has alcanzado el límite gratuito de escaneos con IA (Gemini Free Tier). ' +
+          'Para continuar usando esta función, activa un plan de pago en https://ai.google.dev/pricing',
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+      throw new BadRequestException('Error al comunicarse con el servicio de IA. Intenta nuevamente.');
+    }
 
     const text = result.response.text().trim();
 
