@@ -10,6 +10,8 @@ import * as path from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, ILike, DataSource } from 'typeorm';
 import * as XLSX from 'xlsx';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { ConfigService } from '@nestjs/config';
 import { Jugador } from '@entities/jugador.entity';
 import { Categoria } from '@entities/categoria.entity';
 import { CreateJugadorDto } from './dto/create-jugador.dto';
@@ -30,6 +32,7 @@ export class JugadoresService {
     private readonly categoriaRepository: Repository<Categoria>,
     private readonly dataSource: DataSource,
     private readonly mensualidadesService: MensualidadesService,
+    private readonly configService: ConfigService,
   ) {}
 
   async create(createJugadorDto: CreateJugadorDto) {
@@ -492,6 +495,51 @@ export class JugadoresService {
 
   async reenviarNotificaciones(id: number) {
     return this.mensualidadesService.reenviarNotificaciones(id);
+  }
+
+  async extraerDocumento(file: Express.Multer.File): Promise<{
+    nombre?: string;
+    apellido?: string;
+    tipo_documento?: string;
+    documento?: string;
+    fecha_nacimiento?: string;
+  }> {
+    const apiKey = this.configService.get<string>('GEMINI_API_KEY') || 'AIzaSyDeIB1dz0-v0Y5rgcNRJtO4i68mkhOoAI0';
+
+    const base64Image = file.buffer.toString('base64');
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+    const prompt = `Analiza la imagen del documento de identidad colombiano y extrae los datos.
+Responde SOLO con un JSON válido sin texto adicional ni bloques de código:
+{
+  "nombre": "primer nombre y segundo nombre si existe",
+  "apellido": "primer y segundo apellido",
+  "tipo_documento": "CC o TI o CE o RC o PA",
+  "documento": "número sin puntos ni espacios",
+  "fecha_nacimiento": "YYYY-MM-DD"
+}
+Si no puedes leer un campo con certeza, omítelo del JSON.`;
+
+    const result = await model.generateContent([
+      prompt,
+      { inlineData: { data: base64Image, mimeType: file.mimetype } },
+    ]);
+
+    const text = result.response.text().trim();
+
+    // Extraer JSON aunque venga con texto envolvente
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new BadRequestException('No se pudo extraer información del documento');
+    }
+
+    try {
+      return JSON.parse(jsonMatch[0]);
+    } catch {
+      throw new BadRequestException('Error al procesar la respuesta de IA');
+    }
   }
 
   private parseFecha(valor: string): Date | null {

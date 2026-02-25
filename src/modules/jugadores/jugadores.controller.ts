@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
+import { diskStorage, memoryStorage } from 'multer';
 import { extname } from 'path';
 import {
   ApiTags,
@@ -66,6 +66,27 @@ export class JugadoresController {
   @ApiResponse({ status: 201, description: 'Resultado de la importacion' })
   bulkImport(@Body() bulkImportDto: BulkImportJugadorDto) {
     return this.jugadoresService.bulkImport(bulkImportDto.jugadores);
+  }
+
+  @Post('extraer-documento')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.TESORERO)
+  @ApiOperation({ summary: 'Extraer datos de jugador desde foto de documento de identidad' })
+  @UseInterceptors(
+    FileInterceptor('imagen', {
+      storage: memoryStorage(),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
+          cb(new BadRequestException('Solo se permiten imágenes JPG, PNG o WEBP'), false);
+          return;
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 5 * 1024 * 1024 },
+    }),
+  )
+  async extraerDocumento(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No se envió ninguna imagen');
+    return this.jugadoresService.extraerDocumento(file);
   }
 
   @Get('plantilla-excel')
