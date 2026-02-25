@@ -515,7 +515,7 @@ export class JugadoresService {
     this.logger.log(`[extraerDocumento] base64 generado, longitud: ${base64Image.length}`);
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
     const prompt = `Analiza la imagen del documento de identidad colombiano y extrae los datos.
 Responde SOLO con un JSON válido sin texto adicional ni bloques de código:
