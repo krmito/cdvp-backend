@@ -11,6 +11,7 @@ export enum UserRole {
   ADMINISTRADOR = 'administrador',
   TESORERO = 'tesorero',
   CONSULTA = 'consulta',
+  ACUDIENTE = 'acudiente',
 }
 
 @Entity('usuarios')

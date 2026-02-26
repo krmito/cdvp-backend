@@ -8,3 +8,5 @@ export { Comprobante } from './comprobante.entity';
 export { Configuracion } from './configuracion.entity';
 export { Staff, RolStaff } from './staff.entity';
 export { Auditoria, AccionAuditoria } from './auditoria.entity';
+export { PermisosRol } from './permisos-rol.entity';
+export { AcudienteJugador } from './acudiente-jugador.entity';

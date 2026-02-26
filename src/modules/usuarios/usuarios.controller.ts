@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Post,
   Patch,
   Param,
   Delete,
@@ -15,6 +16,7 @@ import {
 } from '@nestjs/swagger';
 import { UsuariosService } from './usuarios.service';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
+import { RegisterDto } from '../auth/dto/register.dto';
 import { Roles } from '@common/decorators/roles.decorator';
 import { UserRole } from '@entities/usuario.entity';
 
@@ -23,6 +25,15 @@ import { UserRole } from '@entities/usuario.entity';
 @Controller('usuarios')
 export class UsuariosController {
   constructor(private readonly usuariosService: UsuariosService) {}
+
+  @Post()
+  @Roles(UserRole.ADMINISTRADOR)
+  @ApiOperation({ summary: 'Crear nuevo usuario' })
+  @ApiResponse({ status: 201, description: 'Usuario creado exitosamente' })
+  @ApiResponse({ status: 409, description: 'Email o usuario ya existe' })
+  create(@Body() registerDto: RegisterDto) {
+    return this.usuariosService.create(registerDto);
+  }
 
   @Get()
   @Roles(UserRole.ADMINISTRADOR)
@@ -78,5 +89,36 @@ export class UsuariosController {
   @ApiResponse({ status: 404, description: 'Usuario no encontrado' })
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.usuariosService.remove(id);
+  }
+
+  @Get(':id/jugadores')
+  @Roles(UserRole.ADMINISTRADOR)
+  @ApiOperation({ summary: 'Obtener jugadores vinculados a un acudiente' })
+  @ApiResponse({ status: 200, description: 'Lista de jugadores' })
+  getJugadoresVinculados(@Param('id', ParseIntPipe) id: number) {
+    return this.usuariosService.getJugadoresVinculados(id);
+  }
+
+  @Post(':id/vincular-jugador')
+  @Roles(UserRole.ADMINISTRADOR)
+  @ApiOperation({ summary: 'Vincular jugador a un acudiente' })
+  @ApiResponse({ status: 201, description: 'Jugador vinculado' })
+  @ApiResponse({ status: 409, description: 'Jugador ya vinculado' })
+  vincularJugador(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('jugador_id') jugadorId: number,
+  ) {
+    return this.usuariosService.vincularJugador(id, jugadorId);
+  }
+
+  @Delete(':id/jugadores/:jugadorId')
+  @Roles(UserRole.ADMINISTRADOR)
+  @ApiOperation({ summary: 'Desvincular jugador de un acudiente' })
+  @ApiResponse({ status: 200, description: 'Jugador desvinculado' })
+  desvincularJugador(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('jugadorId', ParseIntPipe) jugadorId: number,
+  ) {
+    return this.usuariosService.desvincularJugador(id, jugadorId);
   }
 }

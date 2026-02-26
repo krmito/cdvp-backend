@@ -15,6 +15,8 @@ import { StaffModule } from './modules/staff/staff.module';
 import { ConfiguracionModule } from './modules/configuracion/configuracion.module';
 import { ReportesModule } from './modules/reportes/reportes.module';
 import { MensajesModule } from './modules/mensajes/mensajes.module';
+import { PermisosRolesModule } from './modules/permisos-roles/permisos-roles.module';
+import { AcudienteModule } from './modules/acudiente/acudiente.module';
 
 // Guards
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -45,6 +47,8 @@ import { HealthController } from './health.controller';
     ConfiguracionModule,
     ReportesModule,
     MensajesModule,
+    PermisosRolesModule,
+    AcudienteModule,
   ],
   controllers: [HealthController],
   providers: [

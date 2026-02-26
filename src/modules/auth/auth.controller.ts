@@ -41,12 +41,21 @@ export class AuthController {
     return this.authService.login(loginDto);
   }
 
-  @Public()
   @Post('register')
+  @Roles(UserRole.ADMINISTRADOR)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Registrar nuevo usuario (solo administradores)' })
   @ApiResponse({
     status: 201,
     description: 'Usuario registrado exitosamente',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autenticado',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Acceso denegado - Solo administradores',
   })
   @ApiResponse({
     status: 409,
