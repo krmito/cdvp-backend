@@ -549,7 +549,7 @@ Si no puedes leer un campo con certeza, omítelo del JSON.`;
       if (msg.includes('API_KEY_INVALID') || msg.toLowerCase().includes('api key not found') || msg.toLowerCase().includes('api key invalid') || msg.includes('403')) {
         throw new HttpException(
           'La API key de Gemini no es válida o no está configurada. Debes crear una cuenta en Google AI Studio (aistudio.google.com), generar una API key y asociar un método de pago para usar esta función.',
-          HttpStatus.UNAUTHORIZED,
+          HttpStatus.SERVICE_UNAVAILABLE,
         );
       }
       throw new BadRequestException(`Error al comunicarse con el servicio de IA: ${msg}`);
