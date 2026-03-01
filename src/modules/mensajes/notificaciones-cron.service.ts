@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Mensualidad, EstadoMensualidad } from '@entities/mensualidad.entity';
 import { NotificacionesService } from './notificaciones.service';
+import { getNowBogota } from '@common/utils/date.utils';
 
 @Injectable()
 export class NotificacionesCronService {
@@ -20,8 +21,8 @@ export class NotificacionesCronService {
     this.logger.log('Ejecutando cron de recordatorios de vencimiento...');
 
     try {
-      // Calcular fecha = hoy + 2 días
-      const hoy = new Date();
+      // Calcular fecha = hoy + 2 días (en hora Colombia)
+      const hoy = getNowBogota();
       const fechaObjetivo = new Date(
         Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 2),
       );

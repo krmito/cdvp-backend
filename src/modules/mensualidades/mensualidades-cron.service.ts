@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { Usuario, UserRole } from '@entities/usuario.entity';
 import { MensualidadesService } from './mensualidades.service';
 import { NotificacionesService } from '../mensajes/notificaciones.service';
+import { getNowBogota } from '@common/utils/date.utils';
 
 @Injectable()
 export class MensualidadesCronService {
@@ -22,7 +23,7 @@ export class MensualidadesCronService {
     this.logger.log('Ejecutando cron de auto-generación de mensualidades...');
 
     try {
-      const hoy = new Date();
+      const hoy = getNowBogota();
       const mes = hoy.getMonth() + 1;
       const anio = hoy.getFullYear();
 

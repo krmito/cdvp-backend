@@ -13,6 +13,7 @@ import { GenerarMensualidadesDto, UpdateMensualidadDto } from './dto/generar-men
 import { FilterMensualidadDto } from './dto/filter-mensualidad.dto';
 import { PaginatedResultHelper } from '@common/dto/paginated-result.interface';
 import { NotificacionesService } from '../mensajes/notificaciones.service';
+import { getNowBogota } from '@common/utils/date.utils';
 
 @Injectable()
 export class MensualidadesService {
@@ -29,7 +30,7 @@ export class MensualidadesService {
   ) {}
 
   async generarMensualidades(dto: GenerarMensualidadesDto) {
-    const hoy = new Date();
+    const hoy = getNowBogota();
     const mes = dto.mes || hoy.getMonth() + 1;
     const anio = dto.anio || hoy.getFullYear();
 
@@ -76,8 +77,8 @@ export class MensualidadesService {
       // Usar mediodía UTC para evitar problemas de timezone con columnas DATE
       fechaVencimiento = new Date(dto.fecha_vencimiento + 'T12:00:00.000Z');
     } else {
-      // Por defecto: 30 días desde hoy (mediodía UTC)
-      const hoy = new Date();
+      // Por defecto: 30 días desde hoy en hora Bogotá (mediodía UTC)
+      const hoy = getNowBogota();
       fechaVencimiento = new Date(Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 30, 12, 0, 0));
     }
 
@@ -117,7 +118,7 @@ export class MensualidadesService {
     const { skip, limit, sortBy = 'id', sortOrder = 'DESC' } = filterDto;
     const { jugador_id, mes, anio, estado } = filterDto;
 
-    const hoy = new Date();
+    const hoy = getNowBogota();
     hoy.setHours(0, 0, 0, 0);
 
     const query = this.mensualidadRepository
@@ -210,15 +211,15 @@ export class MensualidadesService {
   }
 
   async findVencidas() {
-    const hoy = new Date();
-    
+    const hoy = getNowBogota();
+
     // Obtener días de tolerancia de configuración
     const configTolerancia = await this.configuracionRepository.findOne({
       where: { clave: 'dias_tolerancia' },
     });
     
     const diasTolerancia = configTolerancia ? parseInt(configTolerancia.valor) : 5;
-    const fechaLimite = new Date();
+    const fechaLimite = getNowBogota();
     fechaLimite.setDate(fechaLimite.getDate() - diasTolerancia);
 
     const mensualidades = await this.mensualidadRepository.find({
@@ -240,15 +241,15 @@ export class MensualidadesService {
   }
 
   async actualizarEstados() {
-    const hoy = new Date();
-    
+    const hoy = getNowBogota();
+
     // Obtener días de tolerancia
     const configTolerancia = await this.configuracionRepository.findOne({
       where: { clave: 'dias_tolerancia' },
     });
     
     const diasTolerancia = configTolerancia ? parseInt(configTolerancia.valor) : 5;
-    const fechaLimite = new Date();
+    const fechaLimite = getNowBogota();
     fechaLimite.setDate(fechaLimite.getDate() - diasTolerancia);
 
     // Actualizar mensualidades vencidas
@@ -274,7 +275,7 @@ export class MensualidadesService {
       relations: ['jugador', 'pagos'],
     });
 
-    const hoy = new Date();
+    const hoy = getNowBogota();
     hoy.setHours(0, 0, 0, 0);
 
     const totalMensualidades = mensualidades.length;
@@ -369,7 +370,7 @@ export class MensualidadesService {
   }
 
   async generarMensualidadParaNuevoJugador(jugador: Jugador): Promise<void> {
-    const hoy = new Date();
+    const hoy = getNowBogota();
     const mes = hoy.getMonth() + 1;
     const anio = hoy.getFullYear();
 
@@ -401,7 +402,7 @@ export class MensualidadesService {
     });
     const fechaVencimiento = existente
       ? existente.fecha_vencimiento
-      : new Date(Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 30, 12, 0, 0));
+      : new Date(Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 30, 12, 0, 0)); // hoy ya está en hora Bogotá
 
     const mensualidad = this.mensualidadRepository.create({
       jugador,

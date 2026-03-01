@@ -4,6 +4,7 @@ import { Repository, Between, LessThan, In, MoreThan } from 'typeorm';
 import { Pago } from '@entities/pago.entity';
 import { Mensualidad, EstadoMensualidad } from '@entities/mensualidad.entity';
 import { Jugador } from '@entities/jugador.entity';
+import { getNowBogota } from '@common/utils/date.utils';
 
 @Injectable()
 export class ReportesService {
@@ -80,7 +81,7 @@ export class ReportesService {
   }
 
   async reporteMorosos() {
-    const hoy = new Date();
+    const hoy = getNowBogota();
     hoy.setHours(0, 0, 0, 0);
 
     // Buscar mensualidades vencidas, parciales, o pendientes con fecha vencida y saldo pendiente
@@ -223,7 +224,7 @@ export class ReportesService {
       where: { activo: true },
     });
 
-    const hoy = new Date();
+    const hoy = getNowBogota();
     const mesActual = hoy.getMonth() + 1;
     const anioActual = hoy.getFullYear();
 
