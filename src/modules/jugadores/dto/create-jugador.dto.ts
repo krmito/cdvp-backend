@@ -61,13 +61,13 @@ export class CreateJugadorDto {
   @IsString()
   direccion?: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     description: 'Teléfono del jugador',
     example: '300-111-1111',
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  telefono: string;
+  telefono?: string;
 
   @ApiPropertyOptional({
     description: 'Teléfono del acudiente',
