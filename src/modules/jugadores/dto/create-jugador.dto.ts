@@ -38,20 +38,23 @@ export class CreateJugadorDto {
   @IsString()
   tipo_documento?: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     description: 'Número de documento',
     example: '1001001001',
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  documento: string;
+  documento?: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     description: 'Fecha de nacimiento',
     example: '2015-05-20',
+    required: false,
   })
+  @IsOptional()
   @IsDateString()
-  fecha_nacimiento: string;
+  fecha_nacimiento?: string;
 
   @ApiPropertyOptional({
     description: 'Dirección de residencia',

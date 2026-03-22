@@ -25,11 +25,11 @@ export class Jugador {
   @Column({ type: 'varchar', length: 20, default: 'CC' })
   tipo_documento: string;
 
-  @Column({ type: 'varchar', length: 50, unique: true })
-  documento: string;
+  @Column({ type: 'varchar', length: 50, unique: true, nullable: true })
+  documento?: string | null;
 
-  @Column({ type: 'date' })
-  fecha_nacimiento: Date;
+  @Column({ type: 'date', nullable: true })
+  fecha_nacimiento?: Date | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   direccion: string;
