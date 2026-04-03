@@ -78,15 +78,14 @@ export class MensualidadesService {
 
     const mensualidadesCreadas = [];
 
-    // Calcular fecha de vencimiento: personalizada, o 30 días desde hoy
+    // Calcular fecha de vencimiento: personalizada, o último día del mes objetivo
     let fechaVencimiento: Date;
     if (dto.fecha_vencimiento) {
       // Usar mediodía UTC para evitar problemas de timezone con columnas DATE
       fechaVencimiento = new Date(dto.fecha_vencimiento + 'T12:00:00.000Z');
     } else {
-      // Por defecto: 30 días desde hoy en hora Bogotá (mediodía UTC)
-      const hoy = getNowBogota();
-      fechaVencimiento = new Date(Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 30, 12, 0, 0));
+      // Por defecto: último día del mes objetivo (día 0 del mes siguiente = último del mes actual)
+      fechaVencimiento = new Date(Date.UTC(anio, mes, 0, 12, 0, 0));
     }
 
     for (const jugador of jugadoresSinMensualidad) {
@@ -415,17 +414,8 @@ export class MensualidadesService {
 
   async generarMensualidadParaNuevoJugador(jugador: Jugador): Promise<void> {
     const hoy = getNowBogota();
-    const mes = hoy.getMonth() + 1;
+    const mesActual = hoy.getMonth() + 1;
     const anio = hoy.getFullYear();
-
-    // Verificar que este jugador no tenga ya una mensualidad para el período
-    const yaExiste = await this.mensualidadRepository.findOne({
-      where: { jugador: { id: jugador.id }, mes, anio },
-    });
-
-    if (yaExiste) {
-      return;
-    }
 
     // Asegurar que la categoría esté cargada
     if (!jugador.categoria) {
@@ -440,32 +430,54 @@ export class MensualidadesService {
       jugador = jugadorConCategoria;
     }
 
-    // Intentar copiar fecha_vencimiento de una mensualidad existente del mes, o calcular 30 días
-    const existente = await this.mensualidadRepository.findOne({
-      where: { mes, anio },
-    });
-    const fechaVencimiento = existente
-      ? existente.fecha_vencimiento
-      : new Date(Date.UTC(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 30, 12, 0, 0)); // hoy ya está en hora Bogotá
+    // Determinar mes de inicio según fecha_ingreso:
+    // - Sin fecha_ingreso: desde enero del año en curso
+    // - fecha_ingreso en el año actual: desde ese mes
+    // - fecha_ingreso en año anterior: desde enero del año en curso
+    // - fecha_ingreso en año futuro: no generar nada
+    let mesInicio = 1;
+    if (jugador.fecha_ingreso) {
+      const fi = new Date(jugador.fecha_ingreso);
+      const anioIngreso = fi.getFullYear();
+      if (anioIngreso > anio) return; // ingreso en el futuro
+      if (anioIngreso === anio) {
+        mesInicio = fi.getMonth() + 1;
+      }
+      // anioIngreso < anio → mesInicio queda en 1 (enero del año actual)
+    }
 
-    const mensualidad = this.mensualidadRepository.create({
-      jugador,
-      mes,
-      anio,
-      monto: jugador.categoria.valor_mensualidad,
-      saldo_pendiente: jugador.categoria.valor_mensualidad,
-      monto_pagado: 0,
-      fecha_vencimiento: fechaVencimiento,
-      estado: EstadoMensualidad.PENDIENTE,
-    });
+    const notificaciones: { jugador: Jugador; mensualidad: Mensualidad }[] = [];
 
-    const saved = await this.mensualidadRepository.save(mensualidad);
-    this.logger.log(`Mensualidad auto-generada para jugador ${jugador.id} (${jugador.nombre} ${jugador.apellido}) — ${mes}/${anio}`);
+    for (let mes = mesInicio; mes <= mesActual; mes++) {
+      const yaExiste = await this.mensualidadRepository.findOne({
+        where: { jugador: { id: jugador.id }, mes, anio },
+      });
+      if (yaExiste) continue;
 
-    // Fire-and-forget: notificar al jugador
-    this.notificacionesService
-      .enviarNotificacionNuevaMensualidad(jugador, saved)
-      .catch((err) => this.logger.error(`Error notificando nuevo jugador ${jugador.id}: ${err.message}`));
+      // Fecha de vencimiento: último día del mes correspondiente
+      const fechaVencimiento = new Date(Date.UTC(anio, mes, 0, 12, 0, 0));
+
+      const mensualidad = this.mensualidadRepository.create({
+        jugador,
+        mes,
+        anio,
+        monto: jugador.categoria.valor_mensualidad,
+        saldo_pendiente: jugador.categoria.valor_mensualidad,
+        monto_pagado: 0,
+        fecha_vencimiento: fechaVencimiento,
+        estado: EstadoMensualidad.PENDIENTE,
+      });
+
+      const saved = await this.mensualidadRepository.save(mensualidad);
+      this.logger.log(`Mensualidad auto-generada para jugador ${jugador.id} (${jugador.nombre} ${jugador.apellido}) — ${mes}/${anio}`);
+      notificaciones.push({ jugador, mensualidad: saved });
+    }
+
+    if (notificaciones.length > 0) {
+      this.notificacionesService
+        .enviarNotificacionesMasivas(notificaciones)
+        .catch((err) => this.logger.error(`Error notificando nuevo jugador ${jugador.id}: ${err.message}`));
+    }
   }
 
   async reenviarNotificaciones(jugadorId: number): Promise<{ message: string; enviadas: number }> {
