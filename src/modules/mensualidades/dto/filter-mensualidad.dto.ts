@@ -1,10 +1,17 @@
-import { IsOptional, IsNumber, IsEnum } from 'class-validator';
+import { IsOptional, IsNumber, IsEnum, IsString } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { PaginationDto } from '@common/dto/pagination.dto';
 import { EstadoMensualidad } from '@entities/mensualidad.entity';
 
 export class FilterMensualidadDto extends PaginationDto {
+  @ApiPropertyOptional({
+    description: 'Buscar por nombre, apellido o documento del jugador',
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
   @ApiPropertyOptional({
     description: 'Filtrar por jugador',
     example: 1,

@@ -123,7 +123,7 @@ export class MensualidadesService {
 
   async findAll(filterDto: FilterMensualidadDto) {
     const { skip, limit, sortBy = 'id', sortOrder = 'DESC' } = filterDto;
-    const { jugador_id, mes, anio, estado } = filterDto;
+    const { search, jugador_id, mes, anio, estado } = filterDto;
 
     const hoy = getNowBogota();
     hoy.setHours(0, 0, 0, 0);
@@ -135,6 +135,13 @@ export class MensualidadesService {
       .leftJoinAndSelect('mensualidad.pagos', 'pagos');
 
     // Filtros
+    if (search) {
+      query.andWhere(
+        '(jugador.nombre ILIKE :search OR jugador.apellido ILIKE :search OR jugador.documento ILIKE :search OR CONCAT(jugador.nombre, \' \', jugador.apellido) ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
     if (jugador_id) {
       query.andWhere('mensualidad.jugador_id = :jugador_id', { jugador_id });
     }
