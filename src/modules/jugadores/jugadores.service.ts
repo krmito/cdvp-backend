@@ -38,6 +38,11 @@ export class JugadoresService {
   ) {}
 
   async create(createJugadorDto: CreateJugadorDto) {
+    // Normalizar documento: string vacío → null
+    if (!createJugadorDto.documento?.trim()) {
+      createJugadorDto.documento = null;
+    }
+
     // Verificar si el documento ya existe (solo si se proporcionó documento)
     if (createJugadorDto.documento) {
       const existingJugador = await this.jugadorRepository.findOne({
@@ -155,6 +160,11 @@ export class JugadoresService {
 
   async update(id: number, updateJugadorDto: UpdateJugadorDto) {
     const jugador = await this.findOne(id);
+
+    // Normalizar documento: string vacío → null
+    if ('documento' in updateJugadorDto && !updateJugadorDto.documento?.trim()) {
+      updateJugadorDto.documento = null;
+    }
 
     // Si se actualiza el documento, verificar que no exista
     if (updateJugadorDto.documento && updateJugadorDto.documento !== jugador.documento) {
