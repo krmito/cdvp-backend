@@ -36,6 +36,11 @@ export class CreatePagoDto {
 
 // DTO para filtros
 export class FilterPagoDto extends PaginationDto {
+  @ApiPropertyOptional({ description: 'Buscar por nombre, apellido o documento del jugador' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
   @ApiPropertyOptional({ description: 'Filtrar por jugador' })
   @IsOptional()
   @Type(() => Number)

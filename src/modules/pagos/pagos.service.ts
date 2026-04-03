@@ -73,7 +73,7 @@ export class PagosService {
 
   async findAll(filterDto: FilterPagoDto) {
     const { skip, limit, sortBy = 'id', sortOrder = 'DESC' } = filterDto;
-    const { jugador_id, metodo_pago, fecha_desde, fecha_hasta } = filterDto;
+    const { search, jugador_id, metodo_pago, fecha_desde, fecha_hasta } = filterDto;
 
     const query = this.pagoRepository
       .createQueryBuilder('pago')
@@ -81,6 +81,13 @@ export class PagosService {
       .leftJoinAndSelect('pago.mensualidad', 'mensualidad')
       .leftJoinAndSelect('pago.registrado_por', 'usuario')
       .where('pago.anulado = :anulado', { anulado: false });
+
+    if (search) {
+      query.andWhere(
+        '(jugador.nombre ILIKE :search OR jugador.apellido ILIKE :search OR jugador.documento ILIKE :search OR CONCAT(jugador.nombre, \' \', jugador.apellido) ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
 
     if (jugador_id) {
       query.andWhere('pago.jugador_id = :jugador_id', { jugador_id });

@@ -39,6 +39,9 @@ export class Mensualidad {
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   saldo_pendiente: number;
 
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true, default: null })
+  monto_descuento: number | null;
+
   @Column({
     type: 'date',
     transformer: {

@@ -1,4 +1,4 @@
-import { IsNumber, IsOptional, Min, Max, IsDateString } from 'class-validator';
+import { IsNumber, IsOptional, Min, Max, IsDateString, IsPositive } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class GenerarMensualidadesDto {
@@ -40,4 +40,14 @@ export class UpdateMensualidadDto {
   @IsOptional()
   @IsDateString()
   fecha_vencimiento?: string;
+
+  @ApiPropertyOptional({
+    description: 'Monto con descuento. Si se envía null, elimina el descuento.',
+    example: 50000,
+    nullable: true,
+  })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  monto_descuento?: number | null;
 }

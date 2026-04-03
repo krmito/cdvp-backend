@@ -38,13 +38,15 @@ export class JugadoresService {
   ) {}
 
   async create(createJugadorDto: CreateJugadorDto) {
-    // Verificar si el documento ya existe
-    const existingJugador = await this.jugadorRepository.findOne({
-      where: { documento: createJugadorDto.documento },
-    });
+    // Verificar si el documento ya existe (solo si se proporcionó documento)
+    if (createJugadorDto.documento) {
+      const existingJugador = await this.jugadorRepository.findOne({
+        where: { documento: createJugadorDto.documento },
+      });
 
-    if (existingJugador) {
-      throw new ConflictException('El documento ya está registrado');
+      if (existingJugador) {
+        throw new ConflictException('El documento ya está registrado');
+      }
     }
 
     // Verificar que la categoría exista

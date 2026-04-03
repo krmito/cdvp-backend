@@ -279,7 +279,8 @@ export class MensualidadesService {
     hoy.setHours(0, 0, 0, 0);
 
     const totalMensualidades = mensualidades.length;
-    const totalEsperado = mensualidades.reduce((sum, m) => sum + Number(m.monto), 0);
+    const totalEsperado = mensualidades.reduce((sum, m) =>
+      sum + (m.monto_descuento != null ? Number(m.monto_descuento) : Number(m.monto)), 0);
     const totalRecaudado = mensualidades.reduce((sum, m) => sum + Number(m.monto_pagado), 0);
     const totalPendiente = totalEsperado - totalRecaudado;
 
@@ -334,8 +335,11 @@ export class MensualidadesService {
       throw new BadRequestException('Esta mensualidad ya está pagada');
     }
 
+    const montoBase = mensualidad.monto_descuento != null
+      ? Number(mensualidad.monto_descuento)
+      : Number(mensualidad.monto);
     const nuevoMontoPagado = Number(mensualidad.monto_pagado) + montoPagado;
-    const nuevoSaldoPendiente = Number(mensualidad.monto) - nuevoMontoPagado;
+    const nuevoSaldoPendiente = montoBase - nuevoMontoPagado;
 
     mensualidad.monto_pagado = nuevoMontoPagado;
     mensualidad.saldo_pendiente = nuevoSaldoPendiente;
@@ -359,6 +363,21 @@ export class MensualidadesService {
     if (dto.fecha_vencimiento) {
       // Usar mediodía UTC para evitar problemas de timezone
       mensualidad.fecha_vencimiento = new Date(dto.fecha_vencimiento + 'T12:00:00.000Z');
+    }
+
+    // Aplicar o quitar descuento y recalcular saldo
+    if ('monto_descuento' in dto) {
+      mensualidad.monto_descuento = dto.monto_descuento ?? null;
+      const montoBase = mensualidad.monto_descuento != null
+        ? Number(mensualidad.monto_descuento)
+        : Number(mensualidad.monto);
+      const nuevoSaldo = montoBase - Number(mensualidad.monto_pagado);
+      mensualidad.saldo_pendiente = nuevoSaldo <= 0 ? 0 : nuevoSaldo;
+      mensualidad.estado = nuevoSaldo <= 0
+        ? EstadoMensualidad.PAGADO
+        : Number(mensualidad.monto_pagado) > 0
+          ? EstadoMensualidad.PARCIAL
+          : EstadoMensualidad.PENDIENTE;
     }
 
     await this.mensualidadRepository.save(mensualidad);
