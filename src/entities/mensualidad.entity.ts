@@ -70,6 +70,15 @@ export class Mensualidad {
   })
   estado: EstadoMensualidad;
 
+  @Column({ type: 'boolean', default: false })
+  anulada: boolean;
+
+  @Column({ type: 'varchar', length: 500, nullable: true, default: null })
+  motivo_anulacion: string | null;
+
+  @Column({ type: 'timestamp', nullable: true, default: null })
+  fecha_anulacion: Date | null;
+
   @CreateDateColumn({ type: 'timestamp' })
   fecha_creacion: Date;
 

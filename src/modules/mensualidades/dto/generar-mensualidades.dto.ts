@@ -1,5 +1,5 @@
-import { IsNumber, IsOptional, Min, Max, IsDateString, IsPositive } from 'class-validator';
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { IsNumber, IsOptional, Min, Max, IsDateString, IsPositive, IsString, IsNotEmpty } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class GenerarMensualidadesDto {
   @ApiPropertyOptional({
@@ -50,4 +50,11 @@ export class UpdateMensualidadDto {
   @IsNumber()
   @IsPositive()
   monto_descuento?: number | null;
+}
+
+export class AnularMensualidadDto {
+  @ApiProperty({ description: 'Motivo de la anulación' })
+  @IsString()
+  @IsNotEmpty()
+  motivo: string;
 }

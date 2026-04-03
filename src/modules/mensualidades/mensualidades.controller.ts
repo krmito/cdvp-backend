@@ -16,7 +16,7 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { MensualidadesService } from './mensualidades.service';
-import { GenerarMensualidadesDto, UpdateMensualidadDto } from './dto/generar-mensualidades.dto';
+import { GenerarMensualidadesDto, UpdateMensualidadDto, AnularMensualidadDto } from './dto/generar-mensualidades.dto';
 import { FilterMensualidadDto } from './dto/filter-mensualidad.dto';
 import { Roles } from '@common/decorators/roles.decorator';
 import { UserRole } from '@entities/usuario.entity';
@@ -93,6 +93,19 @@ export class MensualidadesController {
     @Body() dto: UpdateMensualidadDto,
   ) {
     return this.mensualidadesService.update(id, dto);
+  }
+
+  @Patch(':id/anular')
+  @Roles(UserRole.ADMINISTRADOR)
+  @ApiOperation({ summary: 'Anular una mensualidad (soft delete con motivo)' })
+  @ApiResponse({ status: 200, description: 'Mensualidad anulada' })
+  @ApiResponse({ status: 400, description: 'No se puede anular (pagada o ya anulada)' })
+  @ApiResponse({ status: 404, description: 'Mensualidad no encontrada' })
+  anular(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AnularMensualidadDto,
+  ) {
+    return this.mensualidadesService.anular(id, dto);
   }
 
   @Delete(':id')

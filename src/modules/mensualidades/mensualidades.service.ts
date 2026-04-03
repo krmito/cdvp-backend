@@ -9,7 +9,7 @@ import { Repository, LessThan, MoreThan, In } from 'typeorm';
 import { Mensualidad, EstadoMensualidad } from '@entities/mensualidad.entity';
 import { Jugador } from '@entities/jugador.entity';
 import { Configuracion } from '@entities/configuracion.entity';
-import { GenerarMensualidadesDto, UpdateMensualidadDto } from './dto/generar-mensualidades.dto';
+import { GenerarMensualidadesDto, UpdateMensualidadDto, AnularMensualidadDto } from './dto/generar-mensualidades.dto';
 import { FilterMensualidadDto } from './dto/filter-mensualidad.dto';
 import { PaginatedResultHelper } from '@common/dto/paginated-result.interface';
 import { NotificacionesService } from '../mensajes/notificaciones.service';
@@ -132,7 +132,8 @@ export class MensualidadesService {
       .createQueryBuilder('mensualidad')
       .leftJoinAndSelect('mensualidad.jugador', 'jugador')
       .leftJoinAndSelect('jugador.categoria', 'categoria')
-      .leftJoinAndSelect('mensualidad.pagos', 'pagos');
+      .leftJoinAndSelect('mensualidad.pagos', 'pagos')
+      .where('mensualidad.anulada = :anulada', { anulada: false });
 
     // Filtros
     if (search) {
@@ -285,7 +286,7 @@ export class MensualidadesService {
 
   async getResumenMes(mes: number, anio: number) {
     const mensualidades = await this.mensualidadRepository.find({
-      where: { mes, anio },
+      where: { mes, anio, anulada: false },
       relations: ['jugador', 'pagos'],
     });
 
@@ -531,6 +532,31 @@ export class MensualidadesService {
 
     return {
       message: 'Mensualidad eliminada correctamente',
+    };
+  }
+
+  async anular(id: number, dto: AnularMensualidadDto) {
+    const mensualidad = await this.findOne(id);
+
+    if (mensualidad.anulada) {
+      throw new BadRequestException('La mensualidad ya está anulada');
+    }
+
+    if (mensualidad.estado === EstadoMensualidad.PAGADO) {
+      throw new BadRequestException(
+        'No se puede anular una mensualidad pagada. Primero anule los pagos asociados.',
+      );
+    }
+
+    mensualidad.anulada = true;
+    mensualidad.motivo_anulacion = dto.motivo;
+    mensualidad.fecha_anulacion = new Date();
+
+    await this.mensualidadRepository.save(mensualidad);
+
+    return {
+      message: 'Mensualidad anulada correctamente',
+      data: mensualidad,
     };
   }
 }
