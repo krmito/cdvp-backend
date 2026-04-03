@@ -54,10 +54,17 @@ export class MensualidadesService {
       mensualidadesExistentes.map((m) => m.jugador.id),
     );
 
+    // Último día del mes objetivo (para comparar fecha_ingreso)
+    const ultimoDiaMes = new Date(anio, mes, 0); // día 0 del mes siguiente = último del mes actual
+    ultimoDiaMes.setHours(23, 59, 59, 999);
+
     // Filtrar jugadores que NO tienen mensualidad para este período
-    const jugadoresSinMensualidad = jugadores.filter(
-      (j) => !jugadoresConMensualidad.has(j.id),
-    );
+    // y cuya fecha_ingreso (si existe) no supera el mes objetivo
+    const jugadoresSinMensualidad = jugadores.filter((j) => {
+      if (jugadoresConMensualidad.has(j.id)) return false;
+      if (!j.fecha_ingreso) return true;
+      return new Date(j.fecha_ingreso) <= ultimoDiaMes;
+    });
 
     if (jugadoresSinMensualidad.length === 0) {
       return {

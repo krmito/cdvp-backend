@@ -31,6 +31,9 @@ export class Jugador {
   @Column({ type: 'date', nullable: true })
   fecha_nacimiento?: Date | null;
 
+  @Column({ type: 'date', nullable: true })
+  fecha_ingreso?: Date | null;
+
   @Column({ type: 'varchar', length: 255, nullable: true })
   direccion: string;
 

@@ -57,6 +57,15 @@ export class CreateJugadorDto {
   fecha_nacimiento?: string;
 
   @ApiPropertyOptional({
+    description: 'Fecha de ingreso al equipo',
+    example: '2026-03-01',
+    required: false,
+  })
+  @IsOptional()
+  @IsDateString()
+  fecha_ingreso?: string;
+
+  @ApiPropertyOptional({
     description: 'Dirección de residencia',
     example: 'Calle 10 #20-30',
   })
