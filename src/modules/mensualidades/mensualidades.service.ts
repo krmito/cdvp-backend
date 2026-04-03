@@ -279,8 +279,7 @@ export class MensualidadesService {
     hoy.setHours(0, 0, 0, 0);
 
     const totalMensualidades = mensualidades.length;
-    const totalEsperado = mensualidades.reduce((sum, m) =>
-      sum + (m.monto_descuento != null ? Number(m.monto_descuento) : Number(m.monto)), 0);
+    const totalEsperado = mensualidades.reduce((sum, m) => sum + Number(m.monto), 0);
     const totalRecaudado = mensualidades.reduce((sum, m) => sum + Number(m.monto_pagado), 0);
     const totalPendiente = totalEsperado - totalRecaudado;
 
@@ -335,11 +334,8 @@ export class MensualidadesService {
       throw new BadRequestException('Esta mensualidad ya está pagada');
     }
 
-    const montoBase = mensualidad.monto_descuento != null
-      ? Number(mensualidad.monto_descuento)
-      : Number(mensualidad.monto);
     const nuevoMontoPagado = Number(mensualidad.monto_pagado) + montoPagado;
-    const nuevoSaldoPendiente = montoBase - nuevoMontoPagado;
+    const nuevoSaldoPendiente = Number(mensualidad.monto) - nuevoMontoPagado;
 
     mensualidad.monto_pagado = nuevoMontoPagado;
     mensualidad.saldo_pendiente = nuevoSaldoPendiente;
@@ -365,17 +361,31 @@ export class MensualidadesService {
       mensualidad.fecha_vencimiento = new Date(dto.fecha_vencimiento + 'T12:00:00.000Z');
     }
 
-    // Aplicar o quitar descuento y recalcular saldo
+    // Aplicar o quitar descuento y recalcular monto_pagado + saldo
     if ('monto_descuento' in dto) {
-      mensualidad.monto_descuento = dto.monto_descuento ?? null;
-      const montoBase = mensualidad.monto_descuento != null
-        ? Number(mensualidad.monto_descuento)
-        : Number(mensualidad.monto);
-      const nuevoSaldo = montoBase - Number(mensualidad.monto_pagado);
-      mensualidad.saldo_pendiente = nuevoSaldo <= 0 ? 0 : nuevoSaldo;
+      const monto = Number(mensualidad.monto);
+
+      // Crédito anterior (si había descuento aplicado)
+      const creditoAnterior = mensualidad.monto_descuento != null
+        ? monto - Number(mensualidad.monto_descuento)
+        : 0;
+
+      // Crédito nuevo
+      const nuevoDescuento = dto.monto_descuento ?? null;
+      const creditoNuevo = nuevoDescuento != null
+        ? monto - Number(nuevoDescuento)
+        : 0;
+
+      // Ajustar monto_pagado: quitar crédito anterior, sumar crédito nuevo
+      const nuevoPagado = Math.max(0, Number(mensualidad.monto_pagado) - creditoAnterior + creditoNuevo);
+      const nuevoSaldo = Math.max(0, monto - nuevoPagado);
+
+      mensualidad.monto_descuento = nuevoDescuento;
+      mensualidad.monto_pagado = nuevoPagado;
+      mensualidad.saldo_pendiente = nuevoSaldo;
       mensualidad.estado = nuevoSaldo <= 0
         ? EstadoMensualidad.PAGADO
-        : Number(mensualidad.monto_pagado) > 0
+        : nuevoPagado > 0
           ? EstadoMensualidad.PARCIAL
           : EstadoMensualidad.PENDIENTE;
     }
