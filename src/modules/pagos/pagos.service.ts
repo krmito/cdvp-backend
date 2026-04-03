@@ -11,7 +11,7 @@ import { Mensualidad } from '@entities/mensualidad.entity';
 import { Usuario } from '@entities/usuario.entity';
 import { Configuracion } from '@entities/configuracion.entity';
 import { Comprobante } from '@entities/comprobante.entity';
-import { CreatePagoDto, FilterPagoDto, AnularPagoDto } from './dto/pagos.dto';
+import { CreatePagoDto, FilterPagoDto, AnularPagoDto, UpdatePagoDto } from './dto/pagos.dto';
 import { PaginatedResultHelper } from '@common/dto/paginated-result.interface';
 import { MensualidadesService } from '../mensualidades/mensualidades.service';
 
@@ -157,6 +157,26 @@ export class PagosService {
 
     return {
       message: 'Pago anulado exitosamente',
+      data: pago,
+    };
+  }
+
+  async update(id: number, updateDto: UpdatePagoDto) {
+    const pago = await this.findOne(id);
+
+    if (pago.anulado) {
+      throw new BadRequestException('No se puede editar un pago anulado');
+    }
+
+    pago.metodo_pago = updateDto.metodo_pago;
+    if (updateDto.observaciones !== undefined) {
+      pago.observaciones = updateDto.observaciones;
+    }
+
+    await this.pagoRepository.save(pago);
+
+    return {
+      message: 'Pago actualizado exitosamente',
       data: pago,
     };
   }

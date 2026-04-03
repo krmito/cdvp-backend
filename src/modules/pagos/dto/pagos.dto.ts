@@ -63,6 +63,18 @@ export class FilterPagoDto extends PaginationDto {
   fecha_hasta?: string;
 }
 
+// DTO para editar pago
+export class UpdatePagoDto {
+  @ApiProperty({ enum: MetodoPago, description: 'Nuevo método de pago' })
+  @IsEnum(MetodoPago)
+  metodo_pago: MetodoPago;
+
+  @ApiPropertyOptional({ description: 'Observaciones' })
+  @IsOptional()
+  @IsString()
+  observaciones?: string;
+}
+
 // DTO para anular pago
 export class AnularPagoDto {
   @ApiProperty({ description: 'Motivo de anulación' })

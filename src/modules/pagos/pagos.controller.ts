@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Body,
   Param,
   Delete,
@@ -22,7 +23,7 @@ import {
   ApiConsumes,
 } from '@nestjs/swagger';
 import { PagosService } from './pagos.service';
-import { CreatePagoDto, FilterPagoDto, AnularPagoDto } from './dto/pagos.dto';
+import { CreatePagoDto, FilterPagoDto, AnularPagoDto, UpdatePagoDto } from './dto/pagos.dto';
 import { Roles } from '@common/decorators/roles.decorator';
 import { GetUser } from '@common/decorators/get-user.decorator';
 import { UserRole, Usuario } from '@entities/usuario.entity';
@@ -84,6 +85,17 @@ export class PagosController {
   @ApiResponse({ status: 200, description: 'Pago encontrado' })
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.pagosService.findOne(id);
+  }
+
+  @Patch(':id')
+  @Roles(UserRole.ADMINISTRADOR)
+  @ApiOperation({ summary: 'Editar método de pago y/u observaciones' })
+  @ApiResponse({ status: 200, description: 'Pago actualizado' })
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateDto: UpdatePagoDto,
+  ) {
+    return this.pagosService.update(id, updateDto);
   }
 
   @Delete(':id/anular')
