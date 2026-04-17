@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, LessThan, In, MoreThan } from 'typeorm';
+import { Repository, LessThan } from 'typeorm';
 import { Pago } from '@entities/pago.entity';
 import { Mensualidad, EstadoMensualidad } from '@entities/mensualidad.entity';
 import { Jugador } from '@entities/jugador.entity';
@@ -80,31 +80,39 @@ export class ReportesService {
     };
   }
 
-  async reporteMorosos() {
+  async reporteMorosos(mes?: number, anio?: number, categoriaId?: number) {
     const hoy = getNowBogota();
     hoy.setHours(0, 0, 0, 0);
 
-    // Buscar mensualidades vencidas, parciales, o pendientes con fecha vencida y saldo pendiente
-    const mensualidadesDeuda = await this.mensualidadRepository.find({
-      where: [
-        { estado: EstadoMensualidad.VENCIDO },
-        { estado: EstadoMensualidad.PARCIAL },
+    const query = this.mensualidadRepository
+      .createQueryBuilder('m')
+      .leftJoinAndSelect('m.jugador', 'jugador')
+      .leftJoinAndSelect('jugador.categoria', 'categoria')
+      .where(
+        '(m.estado = :vencido OR m.estado = :parcial OR (m.estado = :pendiente AND m.fecha_vencimiento < :hoy AND m.saldo_pendiente > 0))',
         {
-          estado: EstadoMensualidad.PENDIENTE,
-          fecha_vencimiento: LessThan(hoy),
-          saldo_pendiente: MoreThan(0),
+          vencido: EstadoMensualidad.VENCIDO,
+          parcial: EstadoMensualidad.PARCIAL,
+          pendiente: EstadoMensualidad.PENDIENTE,
+          hoy,
         },
-      ],
-      relations: ['jugador', 'jugador.categoria'],
-      order: { fecha_vencimiento: 'ASC' },
-    });
+      )
+      .andWhere('m.saldo_pendiente > 0')
+      .orderBy('m.fecha_vencimiento', 'ASC');
+
+    if (mes && anio) {
+      query.andWhere('m.mes = :mes AND m.anio = :anio', { mes, anio });
+    }
+
+    if (categoriaId) {
+      query.andWhere('categoria.id = :categoriaId', { categoriaId });
+    }
+
+    const mensualidadesDeuda = await query.getMany();
 
     const jugadoresMorosos = new Map<number, any>();
 
     mensualidadesDeuda.forEach((m) => {
-      // Solo incluir si hay saldo pendiente
-      if (Number(m.saldo_pendiente) <= 0) return;
-
       const key = m.jugador.id;
       if (!jugadoresMorosos.has(key)) {
         jugadoresMorosos.set(key, {

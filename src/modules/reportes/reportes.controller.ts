@@ -40,9 +40,19 @@ export class ReportesController {
 
   @Get('morosos')
   @ApiOperation({ summary: 'Reporte de jugadores morosos' })
+  @ApiQuery({ name: 'mes', example: 1, required: false })
+  @ApiQuery({ name: 'anio', example: 2026, required: false })
+  @ApiQuery({ name: 'categoriaId', example: 1, required: false })
   @ApiResponse({ status: 200, description: 'Lista de morosos' })
-  reporteMorosos() {
-    return this.reportesService.reporteMorosos();
+  reporteMorosos(
+    @Query('mes') mes?: string,
+    @Query('anio') anio?: string,
+    @Query('categoriaId') categoriaId?: string,
+  ) {
+    const mesNum = mes ? parseInt(mes) : undefined;
+    const anioNum = anio ? parseInt(anio) : undefined;
+    const categoriaIdNum = categoriaId ? parseInt(categoriaId) : undefined;
+    return this.reportesService.reporteMorosos(mesNum, anioNum, categoriaIdNum);
   }
 
   @Get('proyeccion-ingresos')
