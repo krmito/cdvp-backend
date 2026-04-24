@@ -101,6 +101,14 @@ export class AuthController {
     );
   }
 
+  @Get('password-status')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Estado de expiración de contraseña' })
+  getPasswordStatus(@GetUser() user: Usuario) {
+    return this.authService.getPasswordStatus(user.id);
+  }
+
   @Get('test-protected')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

@@ -48,6 +48,9 @@ export class Usuario {
   @Column({ type: 'timestamp', nullable: true })
   ultimo_acceso: Date;
 
+  @Column({ type: 'timestamp', nullable: true })
+  fecha_cambio_password: Date | null;
+
   @UpdateDateColumn({ type: 'timestamp' })
   fecha_actualizacion: Date;
 }

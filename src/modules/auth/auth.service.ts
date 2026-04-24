@@ -162,13 +162,28 @@ export class AuthService {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
 
-    // Actualizar contraseña
+    // Actualizar contraseña y fecha de cambio
     await this.usuarioRepository.update(userId, {
       password_hash: hashedPassword,
+      fecha_cambio_password: new Date(),
     });
 
     return {
       message: 'Contraseña actualizada exitosamente',
+    };
+  }
+
+  async getPasswordStatus(userId: number) {
+    const user = await this.usuarioRepository.findOne({ where: { id: userId } });
+    if (!user) throw new BadRequestException('Usuario no encontrado');
+    const fechaCambio = user.fecha_cambio_password;
+    if (!fechaCambio) return { expirado: true, dias_restantes: 0 };
+    const diasTranscurridos = Math.floor(
+      (new Date().getTime() - new Date(fechaCambio).getTime()) / (1000 * 60 * 60 * 24),
+    );
+    return {
+      expirado: diasTranscurridos >= 30,
+      dias_restantes: Math.max(0, 30 - diasTranscurridos),
     };
   }
 }
