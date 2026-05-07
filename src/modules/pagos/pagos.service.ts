@@ -84,7 +84,7 @@ export class PagosService {
 
     if (search) {
       query.andWhere(
-        '(jugador.nombre ILIKE :search OR jugador.apellido ILIKE :search OR jugador.documento ILIKE :search OR CONCAT(jugador.nombre, \' \', jugador.apellido) ILIKE :search)',
+        '(unaccent(jugador.nombre) ILIKE unaccent(:search) OR unaccent(jugador.apellido) ILIKE unaccent(:search) OR jugador.documento ILIKE :search OR unaccent(CONCAT(jugador.nombre, \' \', jugador.apellido)) ILIKE unaccent(:search))',
         { search: `%${search}%` },
       );
     }

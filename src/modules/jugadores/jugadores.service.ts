@@ -94,7 +94,7 @@ export class JugadoresService {
     // Filtros
     if (search) {
       query.andWhere(
-        '(jugador.nombre ILIKE :search OR jugador.apellido ILIKE :search OR jugador.documento ILIKE :search)',
+        '(unaccent(jugador.nombre) ILIKE unaccent(:search) OR unaccent(jugador.apellido) ILIKE unaccent(:search) OR jugador.documento ILIKE :search)',
         { search: `%${search}%` },
       );
     }
