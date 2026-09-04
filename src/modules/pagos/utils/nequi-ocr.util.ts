@@ -1,8 +1,8 @@
-import { execFile } from 'child_process';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+
+// tesseract.js v7 — OCR puro en JavaScript/WASM, funciona en cualquier entorno Node.js
+// No requiere binarios del sistema (funciona en Railway, Docker, etc.)
+import { recognize } from 'tesseract.js';
 
 export interface DatosComprobanteNequi {
   textoCompleto: string;
@@ -39,64 +39,17 @@ const MESES: { [key: string]: number } = {
 
 export class NequiOcrUtil {
   /**
-   * Busca el ejecutable de Tesseract en las rutas más comunes de macOS/Linux.
+   * Ejecuta OCR sobre un buffer de imagen usando tesseract.js (WASM).
+   * Funciona en cualquier plataforma sin necesidad de instalar Tesseract nativo.
    */
-  private static findTesseractPath(): string {
-    const candidates = [
-      '/usr/local/bin/tesseract',
-      '/opt/homebrew/bin/tesseract',
-      '/usr/bin/tesseract',
-      path.join(os.homedir(), '.local', 'bin', 'tesseract'),
-    ];
-    for (const candidate of candidates) {
-      try {
-        fs.accessSync(candidate, fs.constants.X_OK);
-        return candidate;
-      } catch {
-        // no existe o no es ejecutable, probar siguiente
-      }
+  static async ejecutarTesseractJS(buffer: Buffer): Promise<string> {
+    try {
+      const result = await recognize(buffer, 'spa');
+      return result.data.text || '';
+    } catch (err) {
+      console.error('Error en tesseract.js:', err);
+      throw err;
     }
-    return 'tesseract'; // fallback: confiar en PATH del shell
-  }
-
-  /**
-   * Ejecuta Tesseract CLI nativo sobre un buffer de imagen.
-   * Resuelve la ruta del binario dinámicamente e inyecta un PATH
-   * completo en el subproceso para evitar ENOENT cuando NestJS
-   * hereda un entorno restringido.
-   */
-  static ejecutarTesseractLocal(buffer: Buffer): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const tempPath = path.join(os.tmpdir(), `nequi_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`);
-
-      fs.writeFile(tempPath, buffer, (writeErr) => {
-        if (writeErr) return reject(writeErr);
-
-        const tesseractBin = this.findTesseractPath();
-
-        // Inyectar un PATH amplio para que Tesseract encuentre sus dependencias
-        const env = {
-          ...process.env,
-          PATH: `/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:${process.env.PATH || ''}`,
-        };
-
-        execFile(
-          tesseractBin,
-          [tempPath, 'stdout', '--oem', '1'],
-          { maxBuffer: 10 * 1024 * 1024, env },
-          (ocrErr, stdout, stderr) => {
-            // Limpiar archivo temporal
-            fs.unlink(tempPath, () => {});
-
-            if (ocrErr) {
-              console.error('Tesseract stderr:', stderr);
-              return reject(ocrErr);
-            }
-            resolve(stdout || '');
-          },
-        );
-      });
-    });
   }
 
   /**
@@ -109,10 +62,9 @@ export class NequiOcrUtil {
       metodo: 'tesseract',
     };
 
-    // 1. Extraer Monto: "¿Cuánto? $ 100.000,00" o "$ 50.000,00"
-    const matchMonto = texto.match(/¿?Cu[aá]nto\??\s*\$?\s*([\d\.,]+)/i)
-      || texto.match(/\$\s*([\d]{1,3}(?:\.[\d]{3})+(?:,\d{2})?)/)
-      || texto.match(/\b([\d]{2,3}\.[\d]{3})\b/);
+    // 1. Extraer Monto: "¿Cuánto? $ 100.000,00" o "$ 50.000,00" o "éCuanto? $100.000,00"
+    const matchMonto = texto.match(/[¿é]?Cu[aá]nto\??\s*\n?\$?\s*([\d\.,]+)/i)
+      || texto.match(/\$\s*([\d]{1,3}(?:\.[\d]{3})+(?:,\d{2})?)/);
 
     if (matchMonto) {
       // Limpiar puntos de miles y coma decimal
@@ -124,8 +76,8 @@ export class NequiOcrUtil {
       }
     }
 
-    // 2. Extraer Referencia / Factura: "Referencia M17924724" o con icono OCR "Referencia 2 M17924724"
-    const matchRef = texto.match(/Referencia\s*[:\n\r]*[^\w\n\r]*\s*(?:[0-9]{1,2}\s+)?([A-Z0-9]{7,15})/i)
+    // 2. Extraer Referencia / Factura: "Referencia M17924724" o con artefactos OCR
+    const matchRef = texto.match(/Referencia\s*[:\n\r]*[^\w\n\r]*\s*(?:[0-9:]{1,2}\s+)?([A-Z0-9]{7,15})/i)
       || texto.match(/Referencia\s*[:\n\r]*([A-Z0-9]{7,15})/i)
       || texto.match(/\b([A-Z]\d{7,10})\b/i)
       || texto.match(/\b(M\d{7,10})\b/);
@@ -134,7 +86,7 @@ export class NequiOcrUtil {
     }
 
     // 3. Extraer Fecha y Mes: "02 de septiembre de 2026"
-    const matchFecha = texto.match(/(\d{1,2})\s+de\s+([a-z]+)\s+de\s+(\d{4})/i);
+    const matchFecha = texto.match(/(\d{1,2})\s+de\s+([a-záéíóúñ]+)\s+de\s+(\d{4})/i);
     if (matchFecha) {
       resultado.fechaTexto = matchFecha[0].trim();
       const mesStr = matchFecha[2].toLowerCase();
@@ -147,12 +99,16 @@ export class NequiOcrUtil {
     // 4. Extraer Conversación / Descripción / Mensaje
     let convTexto = '';
     // Intento A: Bloque entre Conversación y ¿Cuánto? / Cuanto / Valor
-    const matchConvBloque = texto.match(/(?:Conversaci[oó]n|Descripci[oó]n|Mensaje)\s*[:\n\r]+([\s\S]*?)(?:é|¿|\?)?\s*Cu[aá]nto|Valor/i);
+    const matchConvBloque = texto.match(
+      /(?:Conversaci[oó]n|Descripci[oó]n|Mensaje)\s*[:\n\r]+([\s\S]*?)(?:[é¿]?\s*Cu[aá]nto|Valor)/i,
+    );
     if (matchConvBloque) {
       convTexto = matchConvBloque[1].replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
     } else {
       // Intento B: Línea o dos líneas tras Conversación
-      const matchConvLinea = texto.match(/(?:Conversaci[oó]n|Descripci[oó]n|Mensaje)\s*[:\n\r]+([^\n\r]+(?:\n[^\n\r]+)?)/i)
+      const matchConvLinea = texto.match(
+        /(?:Conversaci[oó]n|Descripci[oó]n|Mensaje)\s*[:\n\r]+([^\n\r]+(?:\n[^\n\r]+)?)/i,
+      )
         || texto.match(/(?:Mensualidad(?:es)?|Pago|Abono)\s+(?:de\s+)?([^\n\r]+(?:\n[^\n\r]+)?)/i);
       if (matchConvLinea) {
         convTexto = matchConvLinea[1].replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -199,7 +155,7 @@ export class NequiOcrUtil {
 
   /**
    * Extrae los datos de un comprobante Nequi usando Gemini Vision si hay API Key,
-   * o Tesseract CLI local como fallback 100% autónomo.
+   * o tesseract.js (WASM) como motor 100% portable que funciona en Railway/Docker/local.
    */
   static async extraerDatosComprobante(
     buffer: Buffer,
@@ -248,20 +204,22 @@ Si un campo no está visible con claridad, omítelo o pon null. El monto debe se
             categoriaPista: parsed.categoria,
             fechaTexto: parsed.fecha,
             mesDetectado: parsed.mes,
-            anioDetectado: parsed.anio || 2026,
+            anioDetectado: parsed.anio || new Date().getFullYear(),
             telefono: parsed.telefono,
             destinatario: parsed.destinatario,
             metodo: 'gemini',
           };
         }
       } catch (err) {
-        console.warn('Gemini Vision no disponible o falló, usando Tesseract local:', err.message);
+        console.warn('Gemini Vision no disponible, usando tesseract.js:', err.message);
       }
     }
 
-    // Fallback con Tesseract CLI nativo local
+    // Motor principal: tesseract.js (WASM) — funciona en Railway, Docker, local, etc.
     try {
-      const textoOcr = await this.ejecutarTesseractLocal(buffer);
+      console.log('Ejecutando OCR con tesseract.js (WASM)...');
+      const textoOcr = await this.ejecutarTesseractJS(buffer);
+      console.log('OCR completado, texto extraído:', textoOcr.length, 'caracteres');
       const datosParseados = this.parsearTextoNequi(textoOcr);
 
       return {
@@ -281,7 +239,7 @@ Si un campo no está visible con claridad, omítelo o pon null. El monto debe se
         montoPorMes: datosParseados.montoPorMes,
       };
     } catch (ocrErr) {
-      console.error('Error al ejecutar OCR con Tesseract:', ocrErr);
+      console.error('Error al ejecutar OCR con tesseract.js:', ocrErr);
       return {
         textoCompleto: '',
         monto: 0,
