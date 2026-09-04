@@ -11,9 +11,14 @@ import { Mensualidad } from '@entities/mensualidad.entity';
 import { Usuario } from '@entities/usuario.entity';
 import { Configuracion } from '@entities/configuracion.entity';
 import { Comprobante } from '@entities/comprobante.entity';
+import { Jugador } from '@entities/jugador.entity';
 import { CreatePagoDto, FilterPagoDto, AnularPagoDto, UpdatePagoDto } from './dto/pagos.dto';
+import { InterpretarTextoDto, RegistrarLotePagosDto } from './dto/lote-pagos.dto';
+import { WhatsAppParserUtil } from './utils/whatsapp-parser.util';
+import { NequiOcrUtil } from './utils/nequi-ocr.util';
 import { PaginatedResultHelper } from '@common/dto/paginated-result.interface';
 import { MensualidadesService } from '../mensualidades/mensualidades.service';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class PagosService {
@@ -26,7 +31,10 @@ export class PagosService {
     private readonly configuracionRepository: Repository<Configuracion>,
     @InjectRepository(Comprobante)
     private readonly comprobanteRepository: Repository<Comprobante>,
+    @InjectRepository(Jugador)
+    private readonly jugadorRepository: Repository<Jugador>,
     private readonly mensualidadesService: MensualidadesService,
+    private readonly configService: ConfigService,
   ) {}
 
   async create(createPagoDto: CreatePagoDto, usuario: Usuario) {
@@ -407,5 +415,505 @@ export class PagosService {
 
       doc.end();
     });
+  }
+
+  /**
+   * Interpreta mensajes pegados desde WhatsApp y busca las coincidencias
+   * automáticas con los jugadores activos y sus mensualidades.
+   */
+  async interpretarWhatsApp(dto: InterpretarTextoDto) {
+    const lineasInterpretadas = WhatsAppParserUtil.parsearTextoCompleto(dto.texto);
+
+    // Obtener todos los jugadores activos con sus categorías y mensualidades pendientes
+    const jugadores = await this.jugadorRepository.find({
+      where: { activo: true },
+      relations: ['categoria', 'mensualidades'],
+    });
+
+    const resultados = [];
+
+    for (const item of lineasInterpretadas) {
+      // Buscar similitud con cada jugador
+      const scoredJugadores = jugadores.map((j) => {
+        const nombreCompleto = `${j.nombre} ${j.apellido}`.trim();
+        let score = WhatsAppParserUtil.calcularSimilitud(item.nombreCandidato, nombreCompleto);
+
+        // Si hay pista de categoría y coincide con el nombre de la categoría del jugador, dar un bonus
+        if (item.categoriaPista && j.categoria?.nombre) {
+          const pistaNorm = WhatsAppParserUtil.normalizarTexto(item.categoriaPista);
+          const catNorm = WhatsAppParserUtil.normalizarTexto(j.categoria.nombre);
+          if (catNorm.includes(pistaNorm) || pistaNorm.includes(catNorm)) {
+            score = Math.min(1.0, score + 0.12);
+          }
+        }
+
+        return {
+          jugador: j,
+          score: Math.round(score * 100) / 100,
+        };
+      });
+
+      scoredJugadores.sort((a, b) => b.score - a.score);
+
+      const mejor = scoredJugadores[0];
+      const matchExacto = mejor && mejor.score >= 0.8;
+      const matchSugerido = mejor && mejor.score >= 0.55;
+
+      const jugadorSeleccionado = matchSugerido ? mejor.jugador : null;
+
+      // Buscar mensualidad del mes detectado o la pendiente más antigua
+      let mensualidadAsignada: Mensualidad | null = null;
+      let montoPagar = 0;
+
+      if (jugadorSeleccionado) {
+        const anio = item.anioDetectado || new Date().getFullYear();
+        const mes = item.mesDetectado || new Date().getMonth() + 1;
+
+        // Buscar mensualidad específica de ese mes
+        mensualidadAsignada = jugadorSeleccionado.mensualidades?.find(
+          (m) => m.mes === mes && m.anio === anio,
+        ) || null;
+
+        // Si no existe la mensualidad para ese mes pero el jugador tiene categoría, crearla automáticamente
+        if (!mensualidadAsignada && jugadorSeleccionado.categoria) {
+          const nuevaMensualidad = this.mensualidadRepository.create({
+            jugador: jugadorSeleccionado,
+            mes,
+            anio,
+            monto: jugadorSeleccionado.categoria.valor_mensualidad,
+            monto_pagado: 0,
+            saldo_pendiente: jugadorSeleccionado.categoria.valor_mensualidad,
+            estado: 'pendiente' as any,
+            fecha_vencimiento: new Date(anio, mes - 1, jugadorSeleccionado.dia_vencimiento || 5),
+          });
+          mensualidadAsignada = await this.mensualidadRepository.save(nuevaMensualidad);
+        } else if (!mensualidadAsignada) {
+          // Buscar cualquier mensualidad pendiente
+          mensualidadAsignada = jugadorSeleccionado.mensualidades?.find(
+            (m) => m.estado !== 'pagado' && Number(m.saldo_pendiente) > 0,
+          ) || null;
+        }
+
+        if (mensualidadAsignada) {
+          montoPagar = Number(mensualidadAsignada.saldo_pendiente);
+        }
+      }
+
+      // Preparar observaciones con conceptos adicionales si los hay
+      let obs = '';
+      if (item.conceptosAdicionales.length > 0) {
+        obs = item.conceptosAdicionales.join(', ');
+        if (item.montoAdicional) {
+          obs += ` ($${Number(item.montoAdicional).toLocaleString('es-CO')})`;
+        }
+      }
+
+      resultados.push({
+        idTemporal: Math.random().toString(36).substring(2, 9),
+        lineaOriginal: item.lineaOriginal,
+        nombreCandidato: item.nombreCandidato,
+        mesDetectado: item.mesDetectado,
+        mesNombre: item.mesNombre || (mensualidadAsignada ? `Mes ${mensualidadAsignada.mes}` : ''),
+        anioDetectado: item.anioDetectado,
+        categoriaPista: item.categoriaPista,
+        conceptosAdicionales: item.conceptosAdicionales,
+        montoAdicional: item.montoAdicional,
+        metodoSugerido: item.metodoDetectado || 'efectivo',
+        observaciones: obs,
+        montoPagar: montoPagar,
+        coincidencia: matchExacto ? 'exacta' : matchSugerido ? 'sugerida' : 'no_encontrado',
+        score: mejor ? mejor.score : 0,
+        jugador: jugadorSeleccionado ? {
+          id: jugadorSeleccionado.id,
+          nombre: jugadorSeleccionado.nombre,
+          apellido: jugadorSeleccionado.apellido,
+          documento: jugadorSeleccionado.documento,
+          categoria: jugadorSeleccionado.categoria ? {
+            id: jugadorSeleccionado.categoria.id,
+            nombre: jugadorSeleccionado.categoria.nombre,
+            valor_mensualidad: jugadorSeleccionado.categoria.valor_mensualidad,
+          } : null,
+        } : null,
+        mensualidad: mensualidadAsignada ? {
+          id: mensualidadAsignada.id,
+          mes: mensualidadAsignada.mes,
+          anio: mensualidadAsignada.anio,
+          monto: mensualidadAsignada.monto,
+          saldo_pendiente: mensualidadAsignada.saldo_pendiente,
+          estado: mensualidadAsignada.estado,
+        } : null,
+        sugerencias: scoredJugadores.slice(0, 4).map(s => ({
+          id: s.jugador.id,
+          nombre: `${s.jugador.nombre} ${s.jugador.apellido}`,
+          documento: s.jugador.documento,
+          categoria: s.jugador.categoria?.nombre || 'Sin categoría',
+          score: s.score,
+        })),
+        incluir: matchSugerido && mensualidadAsignada !== null,
+        comprobante: null,
+      });
+    }
+
+    return {
+      totalLineas: lineasInterpretadas.length,
+      coincidenciasExactas: resultados.filter(r => r.coincidencia === 'exacta').length,
+      sugerencias: resultados.filter(r => r.coincidencia === 'sugerida').length,
+      noEncontrados: resultados.filter(r => r.coincidencia === 'no_encontrado').length,
+      items: resultados,
+    };
+  }
+
+  /**
+   * Registra múltiples pagos en lote de forma atómica y consistente.
+   */
+  async registrarLote(loteDto: RegistrarLotePagosDto, usuario: Usuario) {
+    if (!loteDto.pagos || loteDto.pagos.length === 0) {
+      throw new BadRequestException('La lista de pagos no puede estar vacía');
+    }
+
+    const pagosCreados = [];
+    const errores = [];
+
+    for (const [index, pagoDto] of loteDto.pagos.entries()) {
+      try {
+        let mensualidad: Mensualidad | null = null;
+
+        if (pagoDto.mensualidad_id) {
+          mensualidad = await this.mensualidadRepository.findOne({
+            where: { id: pagoDto.mensualidad_id },
+            relations: ['jugador', 'jugador.categoria'],
+          });
+        }
+
+        // Si no se encontró por ID pero viene jugador_id, mes y anio, buscar o crear bajo demanda
+        if (!mensualidad && pagoDto.jugador_id && pagoDto.mes && pagoDto.anio) {
+          mensualidad = await this.mensualidadRepository.findOne({
+            where: {
+              jugador: { id: pagoDto.jugador_id },
+              mes: pagoDto.mes,
+              anio: pagoDto.anio,
+            },
+            relations: ['jugador', 'jugador.categoria'],
+          });
+
+          if (!mensualidad) {
+            const jugador = await this.jugadorRepository.findOne({
+              where: { id: pagoDto.jugador_id },
+              relations: ['categoria'],
+            });
+            if (jugador) {
+              const valorCuota = jugador.categoria?.valor_mensualidad
+                ? Number(jugador.categoria.valor_mensualidad)
+                : 50000;
+              const nuevaM = this.mensualidadRepository.create({
+                jugador,
+                mes: pagoDto.mes,
+                anio: pagoDto.anio,
+                monto: valorCuota,
+                monto_pagado: 0,
+                saldo_pendiente: valorCuota,
+                estado: 'pendiente' as any,
+                fecha_vencimiento: new Date(pagoDto.anio, pagoDto.mes - 1, jugador.dia_vencimiento || 5),
+              });
+              mensualidad = await this.mensualidadRepository.save(nuevaM);
+            }
+          }
+        }
+
+        if (!mensualidad) {
+          throw new NotFoundException(`Mensualidad para el pago no encontrada`);
+        }
+
+        const saldoActual = Number(mensualidad.saldo_pendiente);
+        // Ajustar el monto al saldo pendiente si la cuota era ligeramente menor para evitar rechazo
+        const montoAplicar = saldoActual > 0 ? Math.min(pagoDto.monto_pagado, saldoActual) : pagoDto.monto_pagado;
+
+        const numeroRecibo = await this.generarNumeroRecibo();
+
+        const pago = this.pagoRepository.create({
+          mensualidad,
+          jugador: mensualidad.jugador,
+          monto_pagado: montoAplicar,
+          metodo_pago: pagoDto.metodo_pago,
+          observaciones: pagoDto.observaciones,
+          registrado_por: usuario,
+          numero_recibo: numeroRecibo,
+        });
+
+        const pagoGuardado = await this.pagoRepository.save(pago);
+
+        // Si viene comprobante base64 o archivo, guardarlo
+        if (pagoDto.comprobante_archivo) {
+          const comp = this.comprobanteRepository.create({
+            pago: pagoGuardado,
+            nombre_archivo: `comprobante-nequi-${pagoGuardado.id}.jpg`,
+            tipo_archivo: 'image/jpeg',
+            tamaño_bytes: Math.round(pagoDto.comprobante_archivo.length * 0.75),
+            contenido_base64: pagoDto.comprobante_archivo,
+          });
+          await this.comprobanteRepository.save(comp);
+        }
+
+        // Actualizar estado y saldos de la mensualidad si aún tiene saldo pendiente
+        if (mensualidad.estado !== 'pagado') {
+          await this.mensualidadesService.registrarPago(
+            mensualidad.id,
+            montoAplicar,
+          );
+        }
+
+        pagosCreados.push({
+          id: pagoGuardado.id,
+          numero_recibo: numeroRecibo,
+          jugador: `${mensualidad.jugador.nombre} ${mensualidad.jugador.apellido}`,
+          monto: pagoDto.monto_pagado,
+          metodo_pago: pagoDto.metodo_pago,
+        });
+      } catch (err) {
+        errores.push({
+          indice: index,
+          mensaje: err.message || 'Error procesando pago',
+        });
+      }
+    }
+
+    return {
+      message: `Se registraron exitosamente ${pagosCreados.length} de ${loteDto.pagos.length} pagos`,
+      total_procesados: loteDto.pagos.length,
+      exitosos: pagosCreados.length,
+      fallidos: errores.length,
+      pagos: pagosCreados,
+      errores,
+    };
+  }
+
+  /**
+   * Escanea una imagen de comprobante de Nequi mediante OCR (Tesseract y/o Gemini)
+   * para extraer monto, referencia, conversación, nombre de jugador y vincularlo.
+   */
+  async escanearComprobanteNequi(file: Express.Multer.File) {
+    const apiKey = this.configService.get<string>('GEMINI_API_KEY');
+    const datosOcr = await NequiOcrUtil.extraerDatosComprobante(file.buffer, file.mimetype, apiKey);
+
+    // Obtener jugadores activos
+    const jugadores = await this.jugadorRepository.find({
+      where: { activo: true },
+      relations: ['categoria', 'mensualidades'],
+    });
+
+    let mejorJugador: Jugador | null = null;
+    let scoreMax = 0;
+    let scoredJugadores = [];
+
+    const candidato = datosOcr.nombreCandidato || datosOcr.conversacion || '';
+
+    if (candidato) {
+      scoredJugadores = jugadores.map((j) => {
+        const nombreCompleto = `${j.nombre} ${j.apellido}`.trim();
+        let score = WhatsAppParserUtil.calcularSimilitud(candidato, nombreCompleto);
+
+        if (datosOcr.categoriaPista && j.categoria?.nombre) {
+          const pistaNorm = WhatsAppParserUtil.normalizarTexto(datosOcr.categoriaPista);
+          const catNorm = WhatsAppParserUtil.normalizarTexto(j.categoria.nombre);
+          if (catNorm.includes(pistaNorm) || pistaNorm.includes(catNorm)) {
+            score = Math.min(1.0, score + 0.12);
+          }
+        }
+
+        return {
+          jugador: j,
+          score: Math.round(score * 100) / 100,
+        };
+      });
+
+      scoredJugadores.sort((a, b) => b.score - a.score);
+      if (scoredJugadores.length > 0 && scoredJugadores[0].score >= 0.55) {
+        mejorJugador = scoredJugadores[0].jugador;
+        scoreMax = scoredJugadores[0].score;
+      }
+    }
+
+    const anio = datosOcr.anioDetectado || new Date().getFullYear();
+    const mes = datosOcr.mesDetectado || new Date().getMonth() + 1;
+
+    const NOMBRES_MESES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+    const esDoble = datosOcr.esPagoDobleMes || datosOcr.monto >= 80000 || /mensualidades/i.test(datosOcr.conversacion || '');
+    const montoPorMes = esDoble ? Math.round((datosOcr.monto || 100000) / 2) : (datosOcr.monto || 50000);
+
+    let mensualidadAsignada: Mensualidad | null = null;
+    let mensualidadMes1: Mensualidad | null = null;
+    let mensualidadMes2: Mensualidad | null = null;
+    let mensualidadesDisponibles: any[] = [];
+
+    if (mejorJugador) {
+      const valorMensualidadCat = mejorJugador.categoria?.valor_mensualidad
+        ? Number(mejorJugador.categoria.valor_mensualidad)
+        : 50000;
+
+      // Asegurar que la mensualidad del mes detectado exista
+      mensualidadAsignada = mejorJugador.mensualidades?.find(
+        (m) => m.mes === mes && m.anio === anio,
+      ) || null;
+
+      if (!mensualidadAsignada && mejorJugador.categoria) {
+        const nuevaMensualidad = this.mensualidadRepository.create({
+          jugador: mejorJugador,
+          mes,
+          anio,
+          monto: valorMensualidadCat,
+          monto_pagado: 0,
+          saldo_pendiente: valorMensualidadCat,
+          estado: 'pendiente' as any,
+          fecha_vencimiento: new Date(anio, mes - 1, mejorJugador.dia_vencimiento || 5),
+        });
+        mensualidadAsignada = await this.mensualidadRepository.save(nuevaMensualidad);
+        if (!mejorJugador.mensualidades) mejorJugador.mensualidades = [];
+        mejorJugador.mensualidades.push(mensualidadAsignada);
+      }
+
+      // Ordenar todas las mensualidades del jugador cronológicamente
+      const ordenadas = [...(mejorJugador.mensualidades || [])].sort((a, b) => {
+        if (a.anio !== b.anio) return a.anio - b.anio;
+        return a.mes - b.mes;
+      });
+
+      // Si es pago de 2 meses, buscar los dos meses objetivo
+      if (esDoble) {
+        const mesAnteriorNum = mes === 1 ? 12 : mes - 1;
+        const anioAnteriorNum = mes === 1 ? anio - 1 : anio;
+        const mesAnteriorObj = ordenadas.find(m => m.mes === mesAnteriorNum && m.anio === anioAnteriorNum);
+
+        if (mesAnteriorObj && mesAnteriorObj.estado !== 'pagado' && Number(mesAnteriorObj.saldo_pendiente) > 0) {
+          // El mes anterior está pendiente: Paga Mes Anterior + Mes Detectado (ej. Agosto + Septiembre)
+          mensualidadMes1 = mesAnteriorObj;
+          mensualidadMes2 = mensualidadAsignada;
+        } else {
+          // El mes anterior está al día: Paga Mes Detectado + Mes Siguiente (ej. Septiembre + Octubre)
+          mensualidadMes1 = mensualidadAsignada;
+          const proxMesNum = (mes % 12) + 1;
+          const proxAnioNum = mes === 12 ? anio + 1 : anio;
+          let proxMesObj = ordenadas.find(m => m.mes === proxMesNum && m.anio === proxAnioNum);
+
+          if (!proxMesObj && mejorJugador.categoria) {
+            const nuevaSiguiente = this.mensualidadRepository.create({
+              jugador: mejorJugador,
+              mes: proxMesNum,
+              anio: proxAnioNum,
+              monto: valorMensualidadCat,
+              monto_pagado: 0,
+              saldo_pendiente: valorMensualidadCat,
+              estado: 'pendiente' as any,
+              fecha_vencimiento: new Date(proxAnioNum, proxMesNum - 1, mejorJugador.dia_vencimiento || 5),
+            });
+            proxMesObj = await this.mensualidadRepository.save(nuevaSiguiente);
+            ordenadas.push(proxMesObj);
+          }
+          mensualidadMes2 = proxMesObj || null;
+        }
+      }
+
+      mensualidadesDisponibles = ordenadas.map(m => ({
+        id: m.id,
+        mes: m.mes,
+        anio: m.anio,
+        mesNombre: `${NOMBRES_MESES[m.mes] || 'Mes ' + m.mes} ${m.anio}`,
+        monto: Number(m.monto),
+        saldo_pendiente: Number(m.saldo_pendiente),
+        estado: m.estado,
+      }));
+    }
+
+    // Convertir imagen a Base64 Data URL
+    const base64Data = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
+
+    const convLimpia = (datosOcr.conversacion || '').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+    let observaciones = '';
+    if (datosOcr.referencia) {
+      observaciones += `Ref: ${datosOcr.referencia}`;
+    }
+    if (convLimpia) {
+      if (!observaciones.includes(convLimpia)) {
+        observaciones += observaciones ? ` - ${convLimpia}` : convLimpia;
+      }
+    }
+
+    let mesNombreStr = 'Mes actual';
+    if (esDoble && mensualidadMes1 && mensualidadMes2) {
+      mesNombreStr = `${NOMBRES_MESES[mensualidadMes1.mes]} y ${NOMBRES_MESES[mensualidadMes2.mes]} ${mensualidadMes2.anio}`;
+    } else if (datosOcr.mesDetectado) {
+      mesNombreStr = `${NOMBRES_MESES[datosOcr.mesDetectado] || 'Mes ' + datosOcr.mesDetectado} ${datosOcr.anioDetectado || anio}`;
+    } else if (mensualidadAsignada) {
+      mesNombreStr = `${NOMBRES_MESES[mensualidadAsignada.mes] || 'Mes ' + mensualidadAsignada.mes} ${mensualidadAsignada.anio}`;
+    }
+
+    return {
+      idTemporal: Math.random().toString(36).substring(2, 9),
+      lineaOriginal: convLimpia || `Comprobante Nequi (${datosOcr.referencia || file.originalname})`,
+      nombreCandidato: datosOcr.nombreCandidato || '',
+      mesDetectado: datosOcr.mesDetectado,
+      mesNombre: mesNombreStr,
+      anioDetectado: datosOcr.anioDetectado,
+      categoriaPista: datosOcr.categoriaPista,
+      montoPagar: datosOcr.monto > 0 ? datosOcr.monto : (mensualidadAsignada ? Number(mensualidadAsignada.saldo_pendiente) : 0),
+      metodoPago: 'nequi',
+      observaciones: observaciones.trim(),
+      referencia: datosOcr.referencia,
+      coincidencia: scoreMax >= 0.8 ? 'exacta' : scoreMax >= 0.55 ? 'sugerida' : 'no_encontrado',
+      score: scoreMax,
+      esDobleMes: esDoble,
+      montoMes1: montoPorMes,
+      montoMes2: montoPorMes,
+      idMensualidadMes1: mensualidadMes1?.id || null,
+      idMensualidadMes2: mensualidadMes2?.id || null,
+      mensualidadMes1: mensualidadMes1 ? {
+        id: mensualidadMes1.id,
+        mes: mensualidadMes1.mes,
+        anio: mensualidadMes1.anio,
+        monto: mensualidadMes1.monto,
+        saldo_pendiente: mensualidadMes1.saldo_pendiente,
+        estado: mensualidadMes1.estado,
+      } : null,
+      mensualidadMes2: mensualidadMes2 ? {
+        id: mensualidadMes2.id,
+        mes: mensualidadMes2.mes,
+        anio: mensualidadMes2.anio,
+        monto: mensualidadMes2.monto,
+        saldo_pendiente: mensualidadMes2.saldo_pendiente,
+        estado: mensualidadMes2.estado,
+      } : null,
+      mensualidadesDisponibles,
+      jugador: mejorJugador ? {
+        id: mejorJugador.id,
+        nombre: mejorJugador.nombre,
+        apellido: mejorJugador.apellido,
+        documento: mejorJugador.documento,
+        categoria: mejorJugador.categoria ? {
+          id: mejorJugador.categoria.id,
+          nombre: mejorJugador.categoria.nombre,
+          valor_mensualidad: mejorJugador.categoria.valor_mensualidad,
+        } : null,
+      } : null,
+      mensualidad: mensualidadAsignada ? {
+        id: mensualidadAsignada.id,
+        mes: mensualidadAsignada.mes,
+        anio: mensualidadAsignada.anio,
+        monto: mensualidadAsignada.monto,
+        saldo_pendiente: mensualidadAsignada.saldo_pendiente,
+        estado: mensualidadAsignada.estado,
+      } : null,
+      sugerencias: scoredJugadores.slice(0, 4).map(s => ({
+        id: s.jugador.id,
+        nombre: `${s.jugador.nombre} ${s.jugador.apellido}`,
+        documento: s.jugador.documento,
+        categoria: s.jugador.categoria?.nombre || 'Sin categoría',
+        score: s.score,
+      })),
+      incluir: !!mejorJugador && !!mensualidadAsignada,
+      comprobanteBase64: base64Data,
+      comprobanteNombre: file.originalname,
+      comprobantePreview: base64Data,
+    };
   }
 }

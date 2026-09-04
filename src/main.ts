@@ -8,7 +8,7 @@ import * as express from 'express';
 import { join } from 'path';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
 
   // Habilitar extensión unaccent para búsquedas sin distinción de tildes
   const dataSource = app.get(DataSource);
@@ -33,6 +33,10 @@ async function bootstrap() {
     origin: allowedOrigins,
     credentials: true,
   });
+
+  // Aumentar límite de tamaño para subir comprobantes en lote
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   // Global prefix
   app.setGlobalPrefix(apiPrefix);

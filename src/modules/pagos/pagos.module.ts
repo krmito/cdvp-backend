@@ -4,13 +4,14 @@ import { Pago } from '@entities/pago.entity';
 import { Comprobante } from '@entities/comprobante.entity';
 import { Mensualidad } from '@entities/mensualidad.entity';
 import { Configuracion } from '@entities/configuracion.entity';
+import { Jugador } from '@entities/jugador.entity';
 import { PagosService } from './pagos.service';
 import { PagosController } from './pagos.controller';
 import { MensualidadesModule } from '../mensualidades/mensualidades.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Pago, Comprobante, Mensualidad, Configuracion]),
+    TypeOrmModule.forFeature([Pago, Comprobante, Mensualidad, Configuracion, Jugador]),
     MensualidadesModule,
   ],
   controllers: [PagosController],

@@ -24,6 +24,7 @@ import {
 } from '@nestjs/swagger';
 import { PagosService } from './pagos.service';
 import { CreatePagoDto, FilterPagoDto, AnularPagoDto, UpdatePagoDto } from './dto/pagos.dto';
+import { InterpretarTextoDto, RegistrarLotePagosDto } from './dto/lote-pagos.dto';
 import { Roles } from '@common/decorators/roles.decorator';
 import { GetUser } from '@common/decorators/get-user.decorator';
 import { UserRole, Usuario } from '@entities/usuario.entity';
@@ -33,6 +34,32 @@ import { UserRole, Usuario } from '@entities/usuario.entity';
 @Controller('pagos')
 export class PagosController {
   constructor(private readonly pagosService: PagosService) {}
+
+  @Post('interpretar-whatsapp')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.TESORERO)
+  @ApiOperation({ summary: 'Interpretar texto copiado de WhatsApp y buscar coincidencias' })
+  @ApiResponse({ status: 200, description: 'Lista de pagos interpretados con coincidencias' })
+  interpretarWhatsApp(@Body() dto: InterpretarTextoDto) {
+    return this.pagosService.interpretarWhatsApp(dto);
+  }
+
+  @Post('escanear-nequi')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.TESORERO)
+  @ApiOperation({ summary: 'Escanear comprobante de Nequi mediante OCR e identificar datos' })
+  @ApiConsumes('multipart/form-data')
+  @ApiResponse({ status: 200, description: 'Datos extraídos del comprobante de Nequi con jugador emparejado' })
+  @UseInterceptors(FileInterceptor('file'))
+  escanearNequi(@UploadedFile() file: Express.Multer.File) {
+    return this.pagosService.escanearComprobanteNequi(file);
+  }
+
+  @Post('lote')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.TESORERO)
+  @ApiOperation({ summary: 'Registrar múltiples pagos en lote' })
+  @ApiResponse({ status: 201, description: 'Pagos registrados en lote' })
+  registrarLote(@Body() loteDto: RegistrarLotePagosDto, @GetUser() usuario: Usuario) {
+    return this.pagosService.registrarLote(loteDto, usuario);
+  }
 
   @Post()
   @Roles(UserRole.ADMINISTRADOR, UserRole.TESORERO)

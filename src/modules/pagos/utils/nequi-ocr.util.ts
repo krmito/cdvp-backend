@@ -1,0 +1,259 @@
+import { execFile } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+export interface DatosComprobanteNequi {
+  textoCompleto: string;
+  monto: number;
+  referencia?: string;
+  conversacion?: string;
+  nombreCandidato?: string;
+  categoriaPista?: string;
+  fechaTexto?: string;
+  mesDetectado?: number;
+  anioDetectado?: number;
+  telefono?: string;
+  destinatario?: string;
+  metodo: 'gemini' | 'tesseract';
+  esPagoDobleMes?: boolean;
+  montoPorMes?: number;
+}
+
+const MESES: { [key: string]: number } = {
+  enero: 1,
+  febrero: 2,
+  marzo: 3,
+  abril: 4,
+  mayo: 5,
+  junio: 6,
+  julio: 7,
+  agosto: 8,
+  septiembre: 9,
+  setiembre: 9,
+  octubre: 10,
+  noviembre: 11,
+  diciembre: 12,
+};
+
+export class NequiOcrUtil {
+  /**
+   * Ejecuta Tesseract CLI nativo sobre un buffer de imagen.
+   */
+  static ejecutarTesseractLocal(buffer: Buffer): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const tempPath = path.join(os.tmpdir(), `nequi_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`);
+
+      fs.writeFile(tempPath, buffer, (writeErr) => {
+        if (writeErr) return reject(writeErr);
+
+        execFile(
+          '/usr/local/bin/tesseract',
+          [tempPath, 'stdout', '--oem', '1'],
+          { maxBuffer: 10 * 1024 * 1024 },
+          (ocrErr, stdout) => {
+            // Limpiar archivo temporal
+            fs.unlink(tempPath, () => {});
+
+            if (ocrErr) {
+              return reject(ocrErr);
+            }
+            resolve(stdout || '');
+          },
+        );
+      });
+    });
+  }
+
+  /**
+   * Analiza el texto plano de un comprobante Nequi y extrae los campos clave.
+   */
+  static parsearTextoNequi(texto: string): Partial<DatosComprobanteNequi> {
+    const resultado: Partial<DatosComprobanteNequi> = {
+      textoCompleto: texto,
+      monto: 0,
+      metodo: 'tesseract',
+    };
+
+    // 1. Extraer Monto: "¿Cuánto? $ 100.000,00" o "$ 50.000,00"
+    const matchMonto = texto.match(/¿?Cu[aá]nto\??\s*\$?\s*([\d\.,]+)/i)
+      || texto.match(/\$\s*([\d]{1,3}(?:\.[\d]{3})+(?:,\d{2})?)/)
+      || texto.match(/\b([\d]{2,3}\.[\d]{3})\b/);
+
+    if (matchMonto) {
+      // Limpiar puntos de miles y coma decimal
+      const sinDecimal = matchMonto[1].split(',')[0];
+      const numeroLimpio = sinDecimal.replace(/\./g, '').trim();
+      const parsed = parseFloat(numeroLimpio);
+      if (!isNaN(parsed) && parsed > 0) {
+        resultado.monto = parsed;
+      }
+    }
+
+    // 2. Extraer Referencia / Factura: "Referencia M17924724" o con icono OCR "Referencia 2 M17924724"
+    const matchRef = texto.match(/Referencia\s*[:\n\r]*[^\w\n\r]*\s*(?:[0-9]{1,2}\s+)?([A-Z0-9]{7,15})/i)
+      || texto.match(/Referencia\s*[:\n\r]*([A-Z0-9]{7,15})/i)
+      || texto.match(/\b([A-Z]\d{7,10})\b/i)
+      || texto.match(/\b(M\d{7,10})\b/);
+    if (matchRef) {
+      resultado.referencia = matchRef[1].trim();
+    }
+
+    // 3. Extraer Fecha y Mes: "02 de septiembre de 2026"
+    const matchFecha = texto.match(/(\d{1,2})\s+de\s+([a-z]+)\s+de\s+(\d{4})/i);
+    if (matchFecha) {
+      resultado.fechaTexto = matchFecha[0].trim();
+      const mesStr = matchFecha[2].toLowerCase();
+      if (MESES[mesStr]) {
+        resultado.mesDetectado = MESES[mesStr];
+      }
+      resultado.anioDetectado = parseInt(matchFecha[3]);
+    }
+
+    // 4. Extraer Conversación / Descripción / Mensaje
+    let convTexto = '';
+    // Intento A: Bloque entre Conversación y ¿Cuánto? / Cuanto / Valor
+    const matchConvBloque = texto.match(/(?:Conversaci[oó]n|Descripci[oó]n|Mensaje)\s*[:\n\r]+([\s\S]*?)(?:é|¿|\?)?\s*Cu[aá]nto|Valor/i);
+    if (matchConvBloque) {
+      convTexto = matchConvBloque[1].replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+    } else {
+      // Intento B: Línea o dos líneas tras Conversación
+      const matchConvLinea = texto.match(/(?:Conversaci[oó]n|Descripci[oó]n|Mensaje)\s*[:\n\r]+([^\n\r]+(?:\n[^\n\r]+)?)/i)
+        || texto.match(/(?:Mensualidad(?:es)?|Pago|Abono)\s+(?:de\s+)?([^\n\r]+(?:\n[^\n\r]+)?)/i);
+      if (matchConvLinea) {
+        convTexto = matchConvLinea[1].replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+      }
+    }
+
+    if (convTexto) {
+      resultado.conversacion = convTexto;
+
+      // Buscar si incluye categoría (ej: "Sub 15", "Sub 14", "Juvenil", etc.)
+      const matchCat = convTexto.match(/\b(sub\s*-?\s*\d{1,2}|infantil|pre-?infantil|juvenil|baby)\b/i);
+      if (matchCat) {
+        resultado.categoriaPista = matchCat[0].trim();
+      }
+
+      // Extraer nombre del jugador limpiando "Mensualidades de", categorías, etc.
+      let nombreLimpio = convTexto
+        .replace(/^(conversaci[oó]n|descripci[oó]n|mensaje|mensualidades|mensualidad|pago|abono|de|del)\s+/gi, '')
+        .replace(/\b(conversaci[oó]n|descripci[oó]n|mensaje|mensualidades|mensualidad|pago|abono|de|del)\b/gi, ' ')
+        .replace(/\bsub\s*-?\s*\d{1,2}\b/gi, ' ')
+        .replace(/\b(infantil|pre-?infantil|juvenil|baby)\b/gi, ' ')
+        .replace(/[^\w\sáéíóúüñÁÉÍÓÚÜÑ]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (nombreLimpio.length >= 3) {
+        resultado.nombreCandidato = nombreLimpio;
+      }
+    }
+
+    // 5. Teléfono Nequi: "317 681 9738"
+    const matchTel = texto.match(/N[uú]mero\s*Nequi\s*[:\n\r]*([0-9\s]{10,14})/i);
+    if (matchTel) {
+      resultado.telefono = matchTel[1].replace(/\s+/g, '').trim();
+    }
+
+    // 6. Detección de pago de 2 meses ($100.000 o concepto en plural)
+    const esDoble = (resultado.monto && resultado.monto >= 80000) || /mensualidades/i.test(texto) || /2\s*meses/i.test(texto);
+    resultado.esPagoDobleMes = !!esDoble;
+    resultado.montoPorMes = esDoble && resultado.monto ? Math.round(resultado.monto / 2) : (resultado.monto || 50000);
+
+    return resultado;
+  }
+
+  /**
+   * Extrae los datos de un comprobante Nequi usando Gemini Vision si hay API Key,
+   * o Tesseract CLI local como fallback 100% autónomo.
+   */
+  static async extraerDatosComprobante(
+    buffer: Buffer,
+    mimetype: string = 'image/jpeg',
+    apiKey?: string,
+  ): Promise<DatosComprobanteNequi> {
+    // Si hay GEMINI_API_KEY configurada, intentar primero con Gemini Vision (máxima precisión)
+    if (apiKey && apiKey !== 'TU_KEY_AQUI' && apiKey.trim().length > 10) {
+      try {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+        const prompt = `Analiza la imagen del comprobante de transferencia Nequi y extrae los datos exactos.
+Responde ÚNICAMENTE un JSON válido sin formato markdown ni texto adicional:
+{
+  "monto": 100000,
+  "referencia": "M17924724",
+  "conversacion": "Mensualidades de Joseph Guerrero Cortes Sub 15",
+  "nombre_jugador": "Joseph Guerrero Cortes",
+  "categoria": "Sub 15",
+  "concepto": "Mensualidades",
+  "fecha": "YYYY-MM-DD",
+  "mes": 9,
+  "anio": 2026,
+  "telefono": "3176819738",
+  "destinatario": "Nano Futbol"
+}
+Si un campo no está visible con claridad, omítelo o pon null. El monto debe ser un número entero sin puntos ni comas.`;
+
+        const base64Image = buffer.toString('base64');
+        const result = await model.generateContent([
+          prompt,
+          { inlineData: { data: base64Image, mimeType: mimetype } },
+        ]);
+
+        const textResponse = result.response.text().trim();
+        const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          return {
+            textoCompleto: textResponse,
+            monto: Number(parsed.monto) || 0,
+            referencia: parsed.referencia,
+            conversacion: parsed.conversacion,
+            nombreCandidato: parsed.nombre_jugador,
+            categoriaPista: parsed.categoria,
+            fechaTexto: parsed.fecha,
+            mesDetectado: parsed.mes,
+            anioDetectado: parsed.anio || 2026,
+            telefono: parsed.telefono,
+            destinatario: parsed.destinatario,
+            metodo: 'gemini',
+          };
+        }
+      } catch (err) {
+        console.warn('Gemini Vision no disponible o falló, usando Tesseract local:', err.message);
+      }
+    }
+
+    // Fallback con Tesseract CLI nativo local
+    try {
+      const textoOcr = await this.ejecutarTesseractLocal(buffer);
+      const datosParseados = this.parsearTextoNequi(textoOcr);
+
+      return {
+        textoCompleto: textoOcr,
+        monto: datosParseados.monto || 0,
+        referencia: datosParseados.referencia,
+        conversacion: datosParseados.conversacion,
+        nombreCandidato: datosParseados.nombreCandidato,
+        categoriaPista: datosParseados.categoriaPista,
+        fechaTexto: datosParseados.fechaTexto,
+        mesDetectado: datosParseados.mesDetectado,
+        anioDetectado: datosParseados.anioDetectado || new Date().getFullYear(),
+        telefono: datosParseados.telefono,
+        destinatario: datosParseados.destinatario,
+        metodo: 'tesseract',
+        esPagoDobleMes: datosParseados.esPagoDobleMes,
+        montoPorMes: datosParseados.montoPorMes,
+      };
+    } catch (ocrErr) {
+      console.error('Error al ejecutar OCR con Tesseract:', ocrErr);
+      return {
+        textoCompleto: '',
+        monto: 0,
+        metodo: 'tesseract',
+      };
+    }
+  }
+}
