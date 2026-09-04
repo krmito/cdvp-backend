@@ -39,7 +39,31 @@ const MESES: { [key: string]: number } = {
 
 export class NequiOcrUtil {
   /**
+   * Busca el ejecutable de Tesseract en las rutas más comunes de macOS/Linux.
+   */
+  private static findTesseractPath(): string {
+    const candidates = [
+      '/usr/local/bin/tesseract',
+      '/opt/homebrew/bin/tesseract',
+      '/usr/bin/tesseract',
+      path.join(os.homedir(), '.local', 'bin', 'tesseract'),
+    ];
+    for (const candidate of candidates) {
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      } catch {
+        // no existe o no es ejecutable, probar siguiente
+      }
+    }
+    return 'tesseract'; // fallback: confiar en PATH del shell
+  }
+
+  /**
    * Ejecuta Tesseract CLI nativo sobre un buffer de imagen.
+   * Resuelve la ruta del binario dinámicamente e inyecta un PATH
+   * completo en el subproceso para evitar ENOENT cuando NestJS
+   * hereda un entorno restringido.
    */
   static ejecutarTesseractLocal(buffer: Buffer): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -48,15 +72,24 @@ export class NequiOcrUtil {
       fs.writeFile(tempPath, buffer, (writeErr) => {
         if (writeErr) return reject(writeErr);
 
+        const tesseractBin = this.findTesseractPath();
+
+        // Inyectar un PATH amplio para que Tesseract encuentre sus dependencias
+        const env = {
+          ...process.env,
+          PATH: `/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:${process.env.PATH || ''}`,
+        };
+
         execFile(
-          '/usr/local/bin/tesseract',
+          tesseractBin,
           [tempPath, 'stdout', '--oem', '1'],
-          { maxBuffer: 10 * 1024 * 1024 },
-          (ocrErr, stdout) => {
+          { maxBuffer: 10 * 1024 * 1024, env },
+          (ocrErr, stdout, stderr) => {
             // Limpiar archivo temporal
             fs.unlink(tempPath, () => {});
 
             if (ocrErr) {
+              console.error('Tesseract stderr:', stderr);
               return reject(ocrErr);
             }
             resolve(stdout || '');
