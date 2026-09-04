@@ -28,6 +28,7 @@ import { CreateJugadorDto } from './dto/create-jugador.dto';
 import { UpdateJugadorDto } from './dto/update-jugador.dto';
 import { FilterJugadorDto } from './dto/filter-jugador.dto';
 import { BulkImportJugadorDto } from './dto/bulk-import-jugador.dto';
+import { DesactivarLoteJugadoresDto } from './dto/desactivar-lote-jugadores.dto';
 import { Roles } from '@common/decorators/roles.decorator';
 import { UserRole } from '@entities/usuario.entity';
 
@@ -132,6 +133,14 @@ export class JugadoresController {
   @ApiOperation({ summary: 'Reenviar notificaciones de mensualidades al correo del jugador' })
   reenviarNotificaciones(@Param('id', ParseIntPipe) id: number) {
     return this.jugadoresService.reenviarNotificaciones(id);
+  }
+
+  @Patch('desactivar-lote')
+  @Roles(UserRole.ADMINISTRADOR)
+  @ApiOperation({ summary: 'Desactivar múltiples jugadores en lote' })
+  @ApiResponse({ status: 200, description: 'Jugadores desactivados exitosamente' })
+  desactivarLote(@Body() dto: DesactivarLoteJugadoresDto) {
+    return this.jugadoresService.desactivarLote(dto.jugadorIds, dto.motivo);
   }
 
   @Patch(':id')

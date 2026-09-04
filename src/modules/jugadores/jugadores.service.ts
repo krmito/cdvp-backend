@@ -10,7 +10,7 @@ import {
 import * as fs from 'fs';
 import * as path from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, ILike, DataSource } from 'typeorm';
+import { Repository, Like, ILike, DataSource, In } from 'typeorm';
 import * as XLSX from 'xlsx';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ConfigService } from '@nestjs/config';
@@ -732,5 +732,31 @@ Si no puedes leer un campo con certeza, omítelo del JSON.`;
 
     const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
     return buffer;
+  }
+
+  async desactivarLote(jugadorIds: number[], motivo?: string) {
+    if (!jugadorIds || jugadorIds.length === 0) {
+      throw new BadRequestException('Debe seleccionar al menos un jugador');
+    }
+
+    const jugadores = await this.jugadorRepository.find({
+      where: { id: In(jugadorIds) },
+    });
+
+    if (jugadores.length === 0) {
+      throw new NotFoundException('No se encontraron jugadores con los IDs proporcionados');
+    }
+
+    const idsActualizar = jugadores.map((j) => j.id);
+    await this.jugadorRepository.update(
+      { id: In(idsActualizar) },
+      { activo: false },
+    );
+
+    return {
+      message: `${idsActualizar.length} jugador(es) desactivado(s) exitosamente`,
+      desactivados: idsActualizar,
+      motivo: motivo || 'Inactividad por meses consecutivos sin pago',
+    };
   }
 }

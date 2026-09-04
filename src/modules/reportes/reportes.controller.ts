@@ -85,4 +85,20 @@ export class ReportesController {
   estadisticasGenerales() {
     return this.reportesService.estadisticasGenerales();
   }
+
+  @Get('posibles-inactivos')
+  @ApiOperation({ summary: 'Reporte de posibles jugadores inactivos por meses consecutivos sin pagar' })
+  @ApiQuery({ name: 'mesesConsecutivos', example: 3, required: false })
+  @ApiQuery({ name: 'categoriaId', example: 1, required: false })
+  @ApiQuery({ name: 'busqueda', example: 'Mina', required: false })
+  @ApiResponse({ status: 200, description: 'Lista de posibles jugadores inactivos detectados' })
+  reportePosiblesInactivos(
+    @Query('mesesConsecutivos') mesesConsecutivos?: string,
+    @Query('categoriaId') categoriaId?: string,
+    @Query('busqueda') busqueda?: string,
+  ) {
+    const meses = mesesConsecutivos ? parseInt(mesesConsecutivos) : 3;
+    const catId = categoriaId ? parseInt(categoriaId) : undefined;
+    return this.reportesService.reportePosiblesInactivos(meses, catId, busqueda);
+  }
 }

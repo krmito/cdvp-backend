@@ -288,4 +288,163 @@ export class ReportesService {
       },
     };
   }
+
+  async reportePosiblesInactivos(
+    mesesConsecutivos: number = 3,
+    categoriaId?: number,
+    busqueda?: string,
+  ) {
+    const threshold = Math.max(1, mesesConsecutivos || 3);
+
+    const query = this.jugadorRepository
+      .createQueryBuilder('j')
+      .leftJoinAndSelect('j.categoria', 'categoria')
+      .leftJoinAndSelect('j.mensualidades', 'm', 'm.anulada = false OR m.anulada IS NULL')
+      .where('j.activo = :activo', { activo: true })
+      .orderBy('j.apellido', 'ASC')
+      .addOrderBy('j.nombre', 'ASC')
+      .addOrderBy('m.anio', 'DESC')
+      .addOrderBy('m.mes', 'DESC');
+
+    if (categoriaId) {
+      query.andWhere('categoria.id = :categoriaId', { categoriaId });
+    }
+
+    if (busqueda && busqueda.trim().length > 0) {
+      query.andWhere(
+        '(LOWER(j.nombre) LIKE LOWER(:b) OR LOWER(j.apellido) LIKE LOWER(:b) OR j.documento LIKE :b)',
+        { b: `%${busqueda.trim()}%` },
+      );
+    }
+
+    const jugadores = await query.getMany();
+
+    const jugadorIds = jugadores.map((j) => j.id);
+    const ultimosPagosMap = new Map<number, { fecha: string; mes: number; anio: number; monto: number }>();
+
+    if (jugadorIds.length > 0) {
+      const pagosRaw = await this.pagoRepository
+        .createQueryBuilder('p')
+        .innerJoin('p.mensualidad', 'm')
+        .select('p.jugador_id', 'jugador_id')
+        .addSelect('p.fecha_pago', 'fecha_pago')
+        .addSelect('p.monto_pagado', 'monto_pagado')
+        .addSelect('m.mes', 'mes')
+        .addSelect('m.anio', 'anio')
+        .where('p.jugador_id IN (:...jugadorIds)', { jugadorIds })
+        .andWhere('p.anulado = false')
+        .orderBy('p.fecha_pago', 'DESC')
+        .getRawMany();
+
+      for (const p of pagosRaw) {
+        const jId = Number(p.jugador_id);
+        if (!ultimosPagosMap.has(jId)) {
+          ultimosPagosMap.set(jId, {
+            fecha: p.fecha_pago,
+            mes: p.mes,
+            anio: p.anio,
+            monto: Number(p.monto_pagado),
+          });
+        }
+      }
+    }
+
+    const MESES_NOMBRES = [
+      '', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+    ];
+
+    const candidatos: any[] = [];
+    let deudaTotalGeneral = 0;
+
+    for (const j of jugadores) {
+      const mensualidades = j.mensualidades || [];
+      mensualidades.sort((a, b) => {
+        if (b.anio !== a.anio) return b.anio - a.anio;
+        return b.mes - a.mes;
+      });
+
+      let streak = 0;
+      const mesesAdeudados: any[] = [];
+      let deudaJugador = 0;
+
+      for (const m of mensualidades) {
+        const saldo = Number(m.saldo_pendiente);
+        const impago =
+          (m.estado === EstadoMensualidad.PENDIENTE ||
+            m.estado === EstadoMensualidad.VENCIDO ||
+            m.estado === EstadoMensualidad.PARCIAL) &&
+          saldo > 0;
+
+        if (impago) {
+          streak++;
+          deudaJugador += saldo;
+          mesesAdeudados.push({
+            id: m.id,
+            mes: m.mes,
+            anio: m.anio,
+            mesNombre: `${MESES_NOMBRES[m.mes] || 'Mes ' + m.mes} ${m.anio}`,
+            monto: Number(m.monto),
+            saldoPendiente: saldo,
+            estado: m.estado,
+          });
+        } else {
+          break;
+        }
+      }
+
+      if (streak >= threshold) {
+        deudaTotalGeneral += deudaJugador;
+        const ultPago = ultimosPagosMap.get(j.id);
+
+        candidatos.push({
+          id: j.id,
+          nombre: j.nombre,
+          apellido: j.apellido,
+          nombreCompleto: `${j.nombre} ${j.apellido}`.trim(),
+          documento: j.documento,
+          tipoDocumento: j.tipo_documento,
+          telefono: j.telefono,
+          telefonoAcudiente: j.telefono_acudiente,
+          email: j.email,
+          emailAcudiente: j.email_acudiente,
+          fotoUrl: j.foto_url,
+          fechaRegistro: j.fecha_registro,
+          categoria: j.categoria
+            ? {
+                id: j.categoria.id,
+                nombre: j.categoria.nombre,
+                valorMensualidad: Number(j.categoria.valor_mensualidad),
+              }
+            : null,
+          mesesConsecutivosSinPago: streak,
+          totalDeuda: deudaJugador,
+          mesesAdeudados,
+          ultimoPago: ultPago
+            ? {
+                fecha: ultPago.fecha,
+                mes: ultPago.mes,
+                anio: ultPago.anio,
+                mesNombre: `${MESES_NOMBRES[ultPago.mes] || 'Mes ' + ultPago.mes} ${ultPago.anio}`,
+                monto: ultPago.monto,
+              }
+            : null,
+        });
+      }
+    }
+
+    candidatos.sort((a, b) => {
+      if (b.mesesConsecutivosSinPago !== a.mesesConsecutivosSinPago) {
+        return b.mesesConsecutivosSinPago - a.mesesConsecutivosSinPago;
+      }
+      return b.totalDeuda - a.totalDeuda;
+    });
+
+    return {
+      criterioMeses: threshold,
+      totalDetectados: candidatos.length,
+      deudaTotalAcumulada: deudaTotalGeneral,
+      jugadores: candidatos,
+    };
+  }
 }
