@@ -624,6 +624,30 @@ export class PagosService {
           throw new NotFoundException(`Mensualidad para el pago no encontrada`);
         }
 
+        // Validación antifraude / antiduplicados:
+        // 1. Evitar registrar comprobantes con la misma referencia Nequi
+        const matchRef = pagoDto.observaciones?.match(/Ref:\s*([A-Z0-9]+)/i);
+        const referenciaOcr = matchRef ? matchRef[1] : null;
+        if (referenciaOcr) {
+          const pagoConMismaRef = await this.pagoRepository.createQueryBuilder('pago')
+            .where('pago.anulado = false')
+            .andWhere('pago.observaciones ILIKE :refPattern', { refPattern: `%${referenciaOcr}%` })
+            .getOne();
+
+          if (pagoConMismaRef) {
+            throw new BadRequestException(
+              `El comprobante con referencia ${referenciaOcr} ya fue registrado previamente en el recibo ${pagoConMismaRef.numero_recibo}`,
+            );
+          }
+        }
+
+        // 2. Evitar registrar pagos en una mensualidad que ya esté totalmente pagada
+        if (mensualidad.estado === 'pagado' && Number(mensualidad.saldo_pendiente) <= 0) {
+          throw new BadRequestException(
+            `La mensualidad ${mensualidad.mes}/${mensualidad.anio} de ${mensualidad.jugador?.nombre || 'jugador'} ya está pagada en su totalidad`,
+          );
+        }
+
         const saldoActual = Number(mensualidad.saldo_pendiente);
         // Ajustar el monto al saldo pendiente si la cuota era ligeramente menor para evitar rechazo
         const montoAplicar = saldoActual > 0 ? Math.min(pagoDto.monto_pagado, saldoActual) : pagoDto.monto_pagado;
@@ -848,6 +872,32 @@ export class PagosService {
       mesNombreStr = `${NOMBRES_MESES[mensualidadAsignada.mes] || 'Mes ' + mensualidadAsignada.mes} ${mensualidadAsignada.anio}`;
     }
 
+    // Verificar si la referencia ya fue registrada previamente en un pago activo (no anulado)
+    let pagoDuplicado: Pago | null = null;
+    if (datosOcr.referencia) {
+      pagoDuplicado = await this.pagoRepository.createQueryBuilder('pago')
+        .leftJoinAndSelect('pago.mensualidad', 'mensualidad')
+        .leftJoinAndSelect('pago.jugador', 'jugador')
+        .where('pago.anulado = false')
+        .andWhere('pago.observaciones ILIKE :refPattern', { refPattern: `%${datosOcr.referencia}%` })
+        .orderBy('pago.id', 'DESC')
+        .getOne();
+    }
+
+    const esDuplicado = !!pagoDuplicado;
+    const alertaDuplicado = pagoDuplicado
+      ? `Comprobante ya registrado en el recibo ${pagoDuplicado.numero_recibo}${pagoDuplicado.jugador ? ' (' + pagoDuplicado.jugador.nombre + ' ' + pagoDuplicado.jugador.apellido + ')' : ''}`
+      : null;
+
+    const esMensualidadPagada = !esDoble && mensualidadAsignada
+      ? (mensualidadAsignada.estado === 'pagado' || Number(mensualidadAsignada.saldo_pendiente) <= 0)
+      : false;
+    const alertaMensualidadPagada = esMensualidadPagada && mensualidadAsignada
+      ? `La mensualidad de ${NOMBRES_MESES[mensualidadAsignada.mes]} ${mensualidadAsignada.anio} ya está pagada ($0 pendiente)`
+      : null;
+
+    const incluirDefault = !!mejorJugador && !!mensualidadAsignada && !esDuplicado && !esMensualidadPagada;
+
     return {
       idTemporal: Math.random().toString(36).substring(2, 9),
       lineaOriginal: convLimpia || `Comprobante Nequi (${datosOcr.referencia || file.originalname})`,
@@ -860,6 +910,11 @@ export class PagosService {
       metodoPago: 'nequi',
       observaciones: observaciones.trim(),
       referencia: datosOcr.referencia,
+      esDuplicado,
+      alertaDuplicado,
+      pagoDuplicadoRecibo: pagoDuplicado?.numero_recibo || null,
+      esMensualidadPagada,
+      alertaMensualidadPagada,
       coincidencia: scoreMax >= 0.8 ? 'exacta' : scoreMax >= 0.55 ? 'sugerida' : 'no_encontrado',
       score: scoreMax,
       esDobleMes: esDoble,
@@ -910,7 +965,7 @@ export class PagosService {
         categoria: s.jugador.categoria?.nombre || 'Sin categoría',
         score: s.score,
       })),
-      incluir: !!mejorJugador && !!mensualidadAsignada,
+      incluir: incluirDefault,
       comprobanteBase64: base64Data,
       comprobanteNombre: file.originalname,
       comprobantePreview: base64Data,
