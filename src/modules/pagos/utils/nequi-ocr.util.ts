@@ -115,6 +115,41 @@ export class NequiOcrUtil {
       }
     }
 
+    // 4.1 Detectar meses explícitos en el mensaje/conversación o en el texto general
+    // Si la persona escribe "Mensualidad de octubre Joseph", el mes pagado es Octubre (incluso si la fecha del comprobante es otra).
+    const textoBuscarMes = (convTexto ? convTexto + ' ' : '') + texto;
+    const regexMeses = /\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b/gi;
+    const mesesEncontrados: { nombre: string; num: number; index: number }[] = [];
+    let matchMesItem: RegExpExecArray | null;
+
+    // Buscar en convTexto con máxima prioridad
+    const textoAnalisis = convTexto || texto;
+    while ((matchMesItem = regexMeses.exec(textoAnalisis)) !== null) {
+      const mesClave = matchMesItem[1].toLowerCase();
+      if (MESES[mesClave]) {
+        mesesEncontrados.push({
+          nombre: mesClave,
+          num: MESES[mesClave],
+          index: matchMesItem.index,
+        });
+      }
+    }
+
+    if (mesesEncontrados.length > 0) {
+      resultado.mesDetectado = mesesEncontrados[0].num;
+      if (mesesEncontrados.length >= 2) {
+        resultado.esPagoDobleMes = true;
+      }
+    }
+
+    // Buscar año en convTexto si existe (ej. 2026, 2025)
+    if (convTexto) {
+      const matchAnioConv = convTexto.match(/\b(202[4-9])\b/);
+      if (matchAnioConv) {
+        resultado.anioDetectado = parseInt(matchAnioConv[1]);
+      }
+    }
+
     if (convTexto) {
       resultado.conversacion = convTexto;
 
@@ -124,15 +159,20 @@ export class NequiOcrUtil {
         resultado.categoriaPista = matchCat[0].trim();
       }
 
-      // Extraer nombre del jugador limpiando "Mensualidades de", categorías, etc.
+      // Extraer nombre del jugador limpiando "Mensualidades de", nombres de meses, conceptos, categorías, etc.
       let nombreLimpio = convTexto
         .replace(/^(conversaci[oó]n|descripci[oó]n|mensaje|mensualidades|mensualidad|pago|abono|de|del)\s+/gi, '')
-        .replace(/\b(conversaci[oó]n|descripci[oó]n|mensaje|mensualidades|mensualidad|pago|abono|de|del)\b/gi, ' ')
+        .replace(/\b(conversaci[oó]n|descripci[oó]n|mensaje|mensualidades|mensualidad|pago|abono|de|del|mes|meses|cuota|pensi[oó]n|año|saldo|completo)\b/gi, ' ')
+        .replace(/\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b/gi, ' ')
+        .replace(/\b202[0-9]\b/g, ' ')
         .replace(/\bsub\s*-?\s*\d{1,2}\b/gi, ' ')
         .replace(/\b(infantil|pre-?infantil|juvenil|baby)\b/gi, ' ')
         .replace(/[^\w\sáéíóúüñÁÉÍÓÚÜÑ]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
+
+      // Limpiar conjunciones o preposiciones que hayan quedado al inicio (ej: "y Joseph", "de Joseph")
+      nombreLimpio = nombreLimpio.replace(/^(?:[yeo]|de|del|y\/o)\s+/i, '').trim();
 
       if (nombreLimpio.length >= 3) {
         resultado.nombreCandidato = nombreLimpio;
@@ -183,7 +223,7 @@ Responde ÚNICAMENTE un JSON válido sin formato markdown ni texto adicional:
   "telefono": "3176819738",
   "destinatario": "Nano Futbol"
 }
-Si un campo no está visible con claridad, omítelo o pon null. El monto debe ser un número entero sin puntos ni comas.`;
+Si en el mensaje/conversación se especifica un mes (ejemplo: "mensualidad de octubre"), el campo "mes" debe ser el número de dicho mes especificado (ej. 10 para octubre). De lo contrario, usar el mes de la fecha del comprobante. Si un campo no está visible con claridad, omítelo o pon null. El monto debe ser un número entero sin puntos ni comas.`;
 
         const base64Image = buffer.toString('base64');
         const result = await model.generateContent([
