@@ -161,8 +161,8 @@ export class NequiOcrUtil {
 
       // Extraer nombre del jugador limpiando "Mensualidades de", nombres de meses, conceptos, categorías, etc.
       let nombreLimpio = convTexto
-        .replace(/^(conversaci[oó]n|descripci[oó]n|mensaje|mensualidades|mensualidad|pago|abono|de|del)\s+/gi, '')
-        .replace(/\b(conversaci[oó]n|descripci[oó]n|mensaje|mensualidades|mensualidad|pago|abono|de|del|mes|meses|cuota|pensi[oó]n|año|saldo|completo)\b/gi, ' ')
+        .replace(/^(conversaci[oó]n|descripci[oó]n|mensaje|mensualidades|mensualidad|sensualidad|mensual|pago|abono|de|del)\s+/gi, '')
+        .replace(/\b(conversaci[oó]n|descripci[oó]n|mensaje|mensualidades|mensualidad|sensualidad|mensual|pago|abono|de|del|mes|meses|cuota|pensi[oó]n|año|saldo|completo)\b/gi, ' ')
         .replace(/\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b/gi, ' ')
         .replace(/\b202[0-9]\b/g, ' ')
         .replace(/\bsub\s*-?\s*\d{1,2}\b/gi, ' ')
