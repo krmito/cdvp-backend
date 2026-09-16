@@ -49,8 +49,11 @@ export class PagosController {
   @ApiConsumes('multipart/form-data')
   @ApiResponse({ status: 200, description: 'Datos extraídos del comprobante de Nequi con jugador emparejado' })
   @UseInterceptors(FileInterceptor('file'))
-  escanearNequi(@UploadedFile() file: Express.Multer.File) {
-    return this.pagosService.escanearComprobanteNequi(file);
+  escanearNequi(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('descripcion') descripcion?: string,
+  ) {
+    return this.pagosService.escanearComprobanteNequi(file, descripcion);
   }
 
   @Post('lote')

@@ -715,9 +715,9 @@ export class PagosService {
    * Escanea una imagen de comprobante de Nequi mediante OCR (Tesseract y/o Gemini)
    * para extraer monto, referencia, conversación, nombre de jugador y vincularlo.
    */
-  async escanearComprobanteNequi(file: Express.Multer.File) {
+  async escanearComprobanteNequi(file: Express.Multer.File, descripcionAdicional?: string) {
     const apiKey = this.configService.get<string>('GEMINI_API_KEY');
-    const datosOcr = await NequiOcrUtil.extraerDatosComprobante(file.buffer, file.mimetype, apiKey);
+    const datosOcr = await NequiOcrUtil.extraerDatosComprobante(file.buffer, file.mimetype, apiKey, descripcionAdicional);
 
     // Obtener jugadores activos
     const jugadores = await this.jugadorRepository.find({
@@ -729,15 +729,32 @@ export class PagosService {
     let scoreMax = 0;
     let scoredJugadores = [];
 
-    const candidato = datosOcr.nombreCandidato || datosOcr.conversacion || '';
+    // Parsear descripción si fue provista
+    const descParsed = (descripcionAdicional && descripcionAdicional.trim())
+      ? WhatsAppParserUtil.parsearLinea(descripcionAdicional.trim())
+      : null;
 
-    if (candidato) {
+    const candidatoOcr = datosOcr.nombreCandidato || datosOcr.conversacion || '';
+    const candidatoDesc = descParsed?.nombreCandidato || '';
+    const candidatoFinal = candidatoDesc || candidatoOcr;
+    const categoriaPista = descParsed?.categoriaPista || datosOcr.categoriaPista;
+
+    if (candidatoFinal || candidatoOcr) {
       scoredJugadores = jugadores.map((j) => {
         const nombreCompleto = `${j.nombre} ${j.apellido}`.trim();
-        let score = WhatsAppParserUtil.calcularSimilitud(candidato, nombreCompleto);
+        let score = 0;
 
-        if (datosOcr.categoriaPista && j.categoria?.nombre) {
-          const pistaNorm = WhatsAppParserUtil.normalizarTexto(datosOcr.categoriaPista);
+        if (candidatoDesc) {
+          const scoreDesc = WhatsAppParserUtil.calcularSimilitud(candidatoDesc, nombreCompleto);
+          score = Math.max(score, scoreDesc);
+        }
+        if (candidatoOcr) {
+          const scoreOcr = WhatsAppParserUtil.calcularSimilitud(candidatoOcr, nombreCompleto);
+          score = Math.max(score, scoreOcr);
+        }
+
+        if (categoriaPista && j.categoria?.nombre) {
+          const pistaNorm = WhatsAppParserUtil.normalizarTexto(categoriaPista);
           const catNorm = WhatsAppParserUtil.normalizarTexto(j.categoria.nombre);
           if (catNorm.includes(pistaNorm) || pistaNorm.includes(catNorm)) {
             score = Math.min(1.0, score + 0.12);
@@ -758,7 +775,7 @@ export class PagosService {
     }
 
     const anio = datosOcr.anioDetectado || new Date().getFullYear();
-    const mes = datosOcr.mesDetectado || new Date().getMonth() + 1;
+    const mes = descParsed?.mesDetectado || datosOcr.mesDetectado || new Date().getMonth() + 1;
 
     const NOMBRES_MESES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
@@ -852,12 +869,17 @@ export class PagosService {
     const base64Data = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
 
     const convLimpia = (datosOcr.conversacion || '').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const descLimpia = (descripcionAdicional || '').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
 
     let observaciones = '';
     if (datosOcr.referencia) {
       observaciones += `Ref: ${datosOcr.referencia}`;
     }
-    if (convLimpia) {
+    if (descLimpia) {
+      if (!observaciones.includes(descLimpia)) {
+        observaciones += observaciones ? ` - ${descLimpia}` : descLimpia;
+      }
+    } else if (convLimpia) {
       if (!observaciones.includes(convLimpia)) {
         observaciones += observaciones ? ` - ${convLimpia}` : convLimpia;
       }
@@ -866,6 +888,8 @@ export class PagosService {
     let mesNombreStr = 'Mes actual';
     if (esDoble && mensualidadMes1 && mensualidadMes2) {
       mesNombreStr = `${NOMBRES_MESES[mensualidadMes1.mes]} y ${NOMBRES_MESES[mensualidadMes2.mes]} ${mensualidadMes2.anio}`;
+    } else if (mes) {
+      mesNombreStr = `${NOMBRES_MESES[mes] || 'Mes ' + mes} ${datosOcr.anioDetectado || anio}`;
     } else if (datosOcr.mesDetectado) {
       mesNombreStr = `${NOMBRES_MESES[datosOcr.mesDetectado] || 'Mes ' + datosOcr.mesDetectado} ${datosOcr.anioDetectado || anio}`;
     } else if (mensualidadAsignada) {
@@ -900,12 +924,12 @@ export class PagosService {
 
     return {
       idTemporal: Math.random().toString(36).substring(2, 9),
-      lineaOriginal: convLimpia || `Comprobante Nequi (${datosOcr.referencia || file.originalname})`,
-      nombreCandidato: datosOcr.nombreCandidato || '',
-      mesDetectado: datosOcr.mesDetectado,
+      lineaOriginal: descLimpia || convLimpia || `Comprobante Nequi (${datosOcr.referencia || file.originalname})`,
+      nombreCandidato: candidatoFinal || datosOcr.nombreCandidato || '',
+      mesDetectado: mes,
       mesNombre: mesNombreStr,
       anioDetectado: datosOcr.anioDetectado,
-      categoriaPista: datosOcr.categoriaPista,
+      categoriaPista: categoriaPista,
       montoPagar: datosOcr.monto > 0 ? datosOcr.monto : (mensualidadAsignada ? Number(mensualidadAsignada.saldo_pendiente) : 0),
       metodoPago: 'nequi',
       observaciones: observaciones.trim(),

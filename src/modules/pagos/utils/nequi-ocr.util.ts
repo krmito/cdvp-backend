@@ -3,6 +3,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 // tesseract.js v7 — OCR puro en JavaScript/WASM, funciona en cualquier entorno Node.js
 // No requiere binarios del sistema (funciona en Railway, Docker, etc.)
 import { recognize } from 'tesseract.js';
+import { WhatsAppParserUtil } from './whatsapp-parser.util';
 
 export interface DatosComprobanteNequi {
   textoCompleto: string;
@@ -201,14 +202,25 @@ export class NequiOcrUtil {
     buffer: Buffer,
     mimetype: string = 'image/jpeg',
     apiKey?: string,
+    descripcionAdicional?: string,
   ): Promise<DatosComprobanteNequi> {
+    const descParsed = (descripcionAdicional && descripcionAdicional.trim())
+      ? WhatsAppParserUtil.parsearLinea(descripcionAdicional.trim())
+      : null;
+
     // Si hay GEMINI_API_KEY configurada, intentar primero con Gemini Vision (máxima precisión)
     if (apiKey && apiKey !== 'TU_KEY_AQUI' && apiKey.trim().length > 10) {
       try {
         const genAI = new GoogleGenerativeAI(apiKey);
         const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
-        const prompt = `Analiza la imagen del comprobante de transferencia Nequi y extrae los datos exactos.
+        let promptExtra = '';
+        if (descripcionAdicional && descripcionAdicional.trim()) {
+          promptExtra = `\nMENSAJE O CONTEXTO ADICIONAL DEL USUARIO: "${descripcionAdicional.trim()}".
+Usa prioritariamente esta información para identificar el nombre exacto del jugador, categoría o mes a pagar si la imagen del comprobante no lo indica con claridad.`;
+        }
+
+        const prompt = `Analiza la imagen del comprobante de transferencia Nequi y extrae los datos exactos.${promptExtra}
 Responde ÚNICAMENTE un JSON válido sin formato markdown ni texto adicional:
 {
   "monto": 100000,
@@ -239,11 +251,11 @@ Si en el mensaje/conversación se especifica un mes (ejemplo: "mensualidad de oc
             textoCompleto: textResponse,
             monto: Number(parsed.monto) || 0,
             referencia: parsed.referencia,
-            conversacion: parsed.conversacion,
-            nombreCandidato: parsed.nombre_jugador,
-            categoriaPista: parsed.categoria,
+            conversacion: parsed.conversacion || descripcionAdicional,
+            nombreCandidato: parsed.nombre_jugador || descParsed?.nombreCandidato,
+            categoriaPista: parsed.categoria || descParsed?.categoriaPista,
             fechaTexto: parsed.fecha,
-            mesDetectado: parsed.mes,
+            mesDetectado: descParsed?.mesDetectado || parsed.mes,
             anioDetectado: parsed.anio || new Date().getFullYear(),
             telefono: parsed.telefono,
             destinatario: parsed.destinatario,
@@ -262,11 +274,26 @@ Si en el mensaje/conversación se especifica un mes (ejemplo: "mensualidad de oc
       console.log('OCR completado, texto extraído:', textoOcr.length, 'caracteres');
       const datosParseados = this.parsearTextoNequi(textoOcr);
 
+      if (descParsed) {
+        if (descParsed.nombreCandidato) {
+          datosParseados.nombreCandidato = descParsed.nombreCandidato;
+        }
+        if (descParsed.mesDetectado) {
+          datosParseados.mesDetectado = descParsed.mesDetectado;
+        }
+        if (descParsed.categoriaPista && !datosParseados.categoriaPista) {
+          datosParseados.categoriaPista = descParsed.categoriaPista;
+        }
+        if (descParsed.montoAdicional && (!datosParseados.monto || datosParseados.monto === 0)) {
+          datosParseados.monto = descParsed.montoAdicional;
+        }
+      }
+
       return {
         textoCompleto: textoOcr,
         monto: datosParseados.monto || 0,
         referencia: datosParseados.referencia,
-        conversacion: datosParseados.conversacion,
+        conversacion: datosParseados.conversacion || descripcionAdicional,
         nombreCandidato: datosParseados.nombreCandidato,
         categoriaPista: datosParseados.categoriaPista,
         fechaTexto: datosParseados.fechaTexto,
