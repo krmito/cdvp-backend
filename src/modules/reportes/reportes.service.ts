@@ -80,13 +80,18 @@ export class ReportesService {
     };
   }
 
-  async reporteMorosos(mes?: number, anio?: number, categoriaId?: number) {
+  async reporteMorosos(
+    mes?: number,
+    anio?: number,
+    categoriaId?: number,
+    incluirInactivos: boolean = false,
+  ) {
     const hoy = getNowBogota();
     hoy.setHours(0, 0, 0, 0);
 
     const query = this.mensualidadRepository
       .createQueryBuilder('m')
-      .leftJoinAndSelect('m.jugador', 'jugador')
+      .innerJoinAndSelect('m.jugador', 'jugador')
       .leftJoinAndSelect('jugador.categoria', 'categoria')
       .where(
         '(m.estado = :vencido OR m.estado = :parcial OR (m.estado = :pendiente AND m.fecha_vencimiento < :hoy AND m.saldo_pendiente > 0))',
@@ -98,7 +103,12 @@ export class ReportesService {
         },
       )
       .andWhere('m.saldo_pendiente > 0')
+      .andWhere('(m.anulada = false OR m.anulada IS NULL)')
       .orderBy('m.fecha_vencimiento', 'ASC');
+
+    if (!incluirInactivos) {
+      query.andWhere('jugador.activo = :activo', { activo: true });
+    }
 
     if (mes && anio) {
       query.andWhere('m.mes = :mes AND m.anio = :anio', { mes, anio });
@@ -138,10 +148,13 @@ export class ReportesService {
   }
 
   async proyeccionIngresos(mes: number, anio: number) {
-    const mensualidades = await this.mensualidadRepository.find({
-      where: { mes, anio },
-      relations: ['jugador'],
-    });
+    const mensualidades = await this.mensualidadRepository
+      .createQueryBuilder('m')
+      .innerJoinAndSelect('m.jugador', 'jugador')
+      .where('m.mes = :mes AND m.anio = :anio', { mes, anio })
+      .andWhere('(m.anulada = false OR m.anulada IS NULL)')
+      .andWhere('jugador.activo = :activo', { activo: true })
+      .getMany();
 
     const totalEsperado = mensualidades.reduce(
       (sum, m) => sum + Number(m.monto),
@@ -183,9 +196,11 @@ export class ReportesService {
   async cumplimientoPorCategoria(mes: number, anio: number) {
     const mensualidades = await this.mensualidadRepository
       .createQueryBuilder('m')
-      .leftJoinAndSelect('m.jugador', 'j')
+      .innerJoinAndSelect('m.jugador', 'j')
       .leftJoinAndSelect('j.categoria', 'c')
       .where('m.mes = :mes AND m.anio = :anio', { mes, anio })
+      .andWhere('(m.anulada = false OR m.anulada IS NULL)')
+      .andWhere('j.activo = :activo', { activo: true })
       .getMany();
 
     const porCategoria: Record<string, any> = {};
@@ -236,10 +251,15 @@ export class ReportesService {
     const mesActual = hoy.getMonth() + 1;
     const anioActual = hoy.getFullYear();
 
-    // Obtener mensualidades del mes actual (consistente con el módulo de mensualidades)
-    const mensualidadesMesActual = await this.mensualidadRepository.find({
-      where: { mes: mesActual, anio: anioActual },
-    });
+    // Obtener mensualidades del mes actual solo de jugadores activos y no anuladas
+    const mensualidadesMesActual = await this.mensualidadRepository
+      .createQueryBuilder('m')
+      .innerJoin('m.jugador', 'j')
+      .where('m.mes = :mes AND m.anio = :anio', { mes: mesActual, anio: anioActual })
+      .andWhere('(m.anulada = false OR m.anulada IS NULL)')
+      .andWhere('j.activo = :activo', { activo: true })
+      .select(['m.id', 'm.monto_pagado', 'm.estado'])
+      .getMany();
 
     const recaudadoEsteMes = mensualidadesMesActual.reduce(
       (sum, m) => sum + Number(m.monto_pagado),
@@ -250,27 +270,27 @@ export class ReportesService {
       (m) => m.estado === EstadoMensualidad.PAGADO,
     ).length;
 
-    // Mensualidades pendientes del mes actual
+    // Mensualidades pendientes del mes actual (solo jugadores activos)
     const mensualidadesPendientes = mensualidadesMesActual.filter(
       (m) => m.estado === EstadoMensualidad.PENDIENTE,
     ).length;
 
-    // Mensualidades vencidas: todas las no pagadas con fecha_vencimiento pasada (cualquier mes)
-    const mensualidadesVencidas = await this.mensualidadRepository.count({
-      where: [
+    // Mensualidades vencidas: todas las no pagadas con fecha_vencimiento pasada (cualquier mes) de jugadores activos y no anuladas
+    const mensualidadesVencidas = await this.mensualidadRepository
+      .createQueryBuilder('m')
+      .innerJoin('m.jugador', 'j')
+      .where('j.activo = :activo', { activo: true })
+      .andWhere('(m.anulada = false OR m.anulada IS NULL)')
+      .andWhere('m.saldo_pendiente > 0')
+      .andWhere(
+        '(m.estado = :vencido OR (m.estado IN (:...otrosEstados) AND m.fecha_vencimiento < :hoy))',
         {
-          estado: EstadoMensualidad.VENCIDO,
+          vencido: EstadoMensualidad.VENCIDO,
+          otrosEstados: [EstadoMensualidad.PENDIENTE, EstadoMensualidad.PARCIAL],
+          hoy,
         },
-        {
-          estado: EstadoMensualidad.PENDIENTE,
-          fecha_vencimiento: LessThan(hoy),
-        },
-        {
-          estado: EstadoMensualidad.PARCIAL,
-          fecha_vencimiento: LessThan(hoy),
-        },
-      ],
-    });
+      )
+      .getCount();
 
     return {
       jugadores: {

@@ -236,20 +236,23 @@ export class MensualidadesService {
     const fechaLimite = getNowBogota();
     fechaLimite.setDate(fechaLimite.getDate() - diasTolerancia);
 
-    const mensualidades = await this.mensualidadRepository.find({
-      where: [
+    const mensualidades = await this.mensualidadRepository
+      .createQueryBuilder('m')
+      .innerJoinAndSelect('m.jugador', 'jugador')
+      .leftJoinAndSelect('jugador.categoria', 'categoria')
+      .where('jugador.activo = :activo', { activo: true })
+      .andWhere('(m.anulada = false OR m.anulada IS NULL)')
+      .andWhere('m.saldo_pendiente > 0')
+      .andWhere(
+        '(m.estado = :vencido OR (m.estado IN (:...estados) AND m.fecha_vencimiento < :fechaLimite))',
         {
-          estado: EstadoMensualidad.PENDIENTE,
-          fecha_vencimiento: LessThan(fechaLimite),
+          vencido: EstadoMensualidad.VENCIDO,
+          estados: [EstadoMensualidad.PENDIENTE, EstadoMensualidad.PARCIAL],
+          fechaLimite,
         },
-        {
-          estado: EstadoMensualidad.PARCIAL,
-          fecha_vencimiento: LessThan(fechaLimite),
-        },
-      ],
-      relations: ['jugador', 'jugador.categoria'],
-      order: { fecha_vencimiento: 'ASC' },
-    });
+      )
+      .orderBy('m.fecha_vencimiento', 'ASC')
+      .getMany();
 
     return mensualidades;
   }
@@ -284,10 +287,14 @@ export class MensualidadesService {
   }
 
   async getResumenMes(mes: number, anio: number) {
-    const mensualidades = await this.mensualidadRepository.find({
-      where: { mes, anio, anulada: false },
-      relations: ['jugador', 'pagos'],
-    });
+    const mensualidades = await this.mensualidadRepository
+      .createQueryBuilder('m')
+      .innerJoinAndSelect('m.jugador', 'jugador')
+      .leftJoinAndSelect('m.pagos', 'pagos')
+      .where('m.mes = :mes AND m.anio = :anio', { mes, anio })
+      .andWhere('(m.anulada = false OR m.anulada IS NULL)')
+      .andWhere('jugador.activo = :activo', { activo: true })
+      .getMany();
 
     const hoy = getNowBogota();
     hoy.setHours(0, 0, 0, 0);
