@@ -16,6 +16,7 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { MensualidadesService } from './mensualidades.service';
+import { MensualidadesCronService } from './mensualidades-cron.service';
 import { GenerarMensualidadesDto, UpdateMensualidadDto, AnularMensualidadDto } from './dto/generar-mensualidades.dto';
 import { FilterMensualidadDto } from './dto/filter-mensualidad.dto';
 import { Roles } from '@common/decorators/roles.decorator';
@@ -25,7 +26,10 @@ import { UserRole } from '@entities/usuario.entity';
 @ApiBearerAuth()
 @Controller('mensualidades')
 export class MensualidadesController {
-  constructor(private readonly mensualidadesService: MensualidadesService) {}
+  constructor(
+    private readonly mensualidadesService: MensualidadesService,
+    private readonly mensualidadesCronService: MensualidadesCronService,
+  ) {}
 
   @Post('generar')
   @Roles(UserRole.ADMINISTRADOR, UserRole.TESORERO)
@@ -58,6 +62,18 @@ export class MensualidadesController {
     @Param('anio', ParseIntPipe) anio: number,
   ) {
     return this.mensualidadesService.getResumenMes(mes, anio);
+  }
+
+  @Post('resumen/:mes/:anio/enviar-email')
+  @Roles(UserRole.ADMINISTRADOR, UserRole.TESORERO)
+  @ApiOperation({ summary: 'Enviar resumen mensual por correo con Excel adjunto de morosos de los últimos 2 meses' })
+  @ApiResponse({ status: 200, description: 'Resumen enviado exitosamente con adjunto Excel' })
+  enviarResumenEmail(
+    @Param('mes', ParseIntPipe) mes: number,
+    @Param('anio', ParseIntPipe) anio: number,
+    @Query('email') email?: string,
+  ) {
+    return this.mensualidadesCronService.enviarResumenMensualAdmins(email, mes, anio);
   }
 
   @Get('jugador/:jugadorId')

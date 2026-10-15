@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
+import * as XLSX from 'xlsx';
 import { Pago } from '@entities/pago.entity';
 import { Mensualidad, EstadoMensualidad } from '@entities/mensualidad.entity';
 import { Jugador } from '@entities/jugador.entity';
@@ -465,6 +466,148 @@ export class ReportesService {
       totalDetectados: candidatos.length,
       deudaTotalAcumulada: deudaTotalGeneral,
       jugadores: candidatos,
+    };
+  }
+
+  /**
+   * Genera el archivo Excel con el listado de jugadores morosos de los últimos 2 meses.
+   * Filtra exclusivamente jugadores activos y mensualidades no anuladas.
+   */
+  async generarExcelMorososUltimosDosMeses(
+    mesCierre: number,
+    anioCierre: number,
+  ): Promise<{ filename: string; buffer: Buffer; count: number; totalDeuda: number }> {
+    const MESES_NOMBRES = [
+      '', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+    ];
+
+    // Mes 1: Mes de cierre (ej: Septiembre 2026)
+    // Mes 2: Mes anterior al de cierre (ej: Agosto 2026, o Diciembre del año anterior si mesCierre es 1)
+    const mes1 = mesCierre;
+    const anio1 = anioCierre;
+    const mes2 = mesCierre === 1 ? 12 : mesCierre - 1;
+    const anio2 = mesCierre === 1 ? anioCierre - 1 : anioCierre;
+
+    // Consultar mensualidades con saldo pendiente de estos 2 períodos de jugadores activos y no anuladas
+    const mensualidades = await this.mensualidadRepository
+      .createQueryBuilder('m')
+      .innerJoinAndSelect('m.jugador', 'jugador')
+      .leftJoinAndSelect('jugador.categoria', 'categoria')
+      .where('jugador.activo = :activo', { activo: true })
+      .andWhere('(m.anulada = false OR m.anulada IS NULL)')
+      .andWhere('m.saldo_pendiente > 0')
+      .andWhere(
+        '((m.mes = :mes1 AND m.anio = :anio1) OR (m.mes = :mes2 AND m.anio = :anio2))',
+        { mes1, anio1, mes2, anio2 },
+      )
+      .andWhere('m.estado != :pagado', { pagado: EstadoMensualidad.PAGADO })
+      .orderBy('jugador.apellido', 'ASC')
+      .addOrderBy('jugador.nombre', 'ASC')
+      .addOrderBy('m.anio', 'ASC')
+      .addOrderBy('m.mes', 'ASC')
+      .getMany();
+
+    // Agrupar por jugador
+    const morososMap = new Map<
+      number,
+      {
+        jugador: Jugador;
+        categoriaNombre: string;
+        mensualidades: Mensualidad[];
+        deudaDosMeses: number;
+      }
+    >();
+
+    for (const m of mensualidades) {
+      const jId = m.jugador.id;
+      if (!morososMap.has(jId)) {
+        morososMap.set(jId, {
+          jugador: m.jugador,
+          categoriaNombre: m.jugador.categoria?.nombre || 'Sin categoría',
+          mensualidades: [],
+          deudaDosMeses: 0,
+        });
+      }
+      const item = morososMap.get(jId)!;
+      item.mensualidades.push(m);
+      item.deudaDosMeses += Number(m.saldo_pendiente);
+    }
+
+    const morososList = Array.from(morososMap.values());
+    morososList.sort((a, b) => b.deudaDosMeses - a.deudaDosMeses);
+
+    // Formatear filas para Excel
+    const rows = morososList.map((item, idx) => {
+      const j = item.jugador;
+      const mesesDetalle = item.mensualidades
+        .map((m) => `${MESES_NOMBRES[m.mes]} ${m.anio} ($${Number(m.saldo_pendiente).toLocaleString('es-CO')})`)
+        .join(', ');
+
+      return {
+        '#': idx + 1,
+        'Jugador': `${j.apellido} ${j.nombre}`.trim(),
+        'Documento': j.documento || 'N/A',
+        'Categoría': item.categoriaNombre,
+        'Teléfono': j.telefono || 'N/A',
+        'Teléfono Acudiente': j.telefono_acudiente || 'N/A',
+        'Email': j.email || 'N/A',
+        'Email Acudiente': j.email_acudiente || 'N/A',
+        'Meses en Mora (Últimos 2)': mesesDetalle,
+        'Meses Pendientes': item.mensualidades.length,
+        'Deuda Últimos 2 Meses ($)': item.deudaDosMeses,
+      };
+    });
+
+    // Si no hay morosos en los últimos 2 meses, agregar fila informativa
+    if (rows.length === 0) {
+      rows.push({
+        '#': 1,
+        'Jugador': 'No hay jugadores con saldos pendientes en los últimos dos meses',
+        'Documento': '-',
+        'Categoría': '-',
+        'Teléfono': '-',
+        'Teléfono Acudiente': '-',
+        'Email': '-',
+        'Email Acudiente': '-',
+        'Meses en Mora (Últimos 2)': '-',
+        'Meses Pendientes': 0,
+        'Deuda Últimos 2 Meses ($)': 0,
+      });
+    }
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+
+    // Configurar anchos de columnas
+    ws['!cols'] = [
+      { wch: 5 },  // #
+      { wch: 30 }, // Jugador
+      { wch: 15 }, // Documento
+      { wch: 20 }, // Categoría
+      { wch: 16 }, // Teléfono
+      { wch: 18 }, // Teléfono Acudiente
+      { wch: 26 }, // Email
+      { wch: 26 }, // Email Acudiente
+      { wch: 45 }, // Meses en Mora
+      { wch: 16 }, // Meses Pendientes
+      { wch: 24 }, // Deuda Últimos 2 Meses ($)
+    ];
+
+    const wb = XLSX.utils.book_new();
+    const sheetName = 'Morosos 2 Meses';
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const mesNombre1 = MESES_NOMBRES[mes1] || `Mes_${mes1}`;
+    const filename = `Morosos_Ultimos_2_Meses_${mesNombre1}_${anio1}.xlsx`;
+
+    const totalDeudaGeneral = morososList.reduce((sum, item) => sum + item.deudaDosMeses, 0);
+
+    return {
+      filename,
+      buffer,
+      count: morososList.length,
+      totalDeuda: totalDeudaGeneral,
     };
   }
 }

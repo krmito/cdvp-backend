@@ -1,4 +1,5 @@
-import { Controller, Get, Query, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Query, ParseIntPipe, Res } from '@nestjs/common';
+import { Response } from 'express';
 import {
   ApiTags,
   ApiOperation,
@@ -7,6 +8,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { ReportesService } from './reportes.service';
+import { getNowBogota } from '@common/utils/date.utils';
 
 @ApiTags('reportes')
 @ApiBearerAuth()
@@ -103,5 +105,32 @@ export class ReportesController {
     const meses = mesesConsecutivos ? parseInt(mesesConsecutivos) : 3;
     const catId = categoriaId ? parseInt(categoriaId) : undefined;
     return this.reportesService.reportePosiblesInactivos(meses, catId, busqueda);
+  }
+
+  @Get('morosos-ultimos-dos-meses/exportar')
+  @ApiOperation({ summary: 'Exportar Excel de jugadores morosos de los últimos 2 meses' })
+  @ApiQuery({ name: 'mes', example: 9, required: false })
+  @ApiQuery({ name: 'anio', example: 2026, required: false })
+  @ApiResponse({ status: 200, description: 'Descarga de archivo Excel (.xlsx)' })
+  async exportarMorososUltimosDosMeses(
+    @Res() res: Response,
+    @Query('mes') mes?: string,
+    @Query('anio') anio?: string,
+  ) {
+    const hoy = getNowBogota();
+    const mesCierre = mes ? parseInt(mes) : (hoy.getMonth() === 0 ? 12 : hoy.getMonth());
+    const anioCierre = anio ? parseInt(anio) : (hoy.getMonth() === 0 ? hoy.getFullYear() - 1 : hoy.getFullYear());
+
+    const { filename, buffer } = await this.reportesService.generarExcelMorososUltimosDosMeses(
+      mesCierre,
+      anioCierre,
+    );
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+    res.send(buffer);
   }
 }

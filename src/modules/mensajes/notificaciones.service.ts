@@ -335,6 +335,7 @@ export class NotificacionesService {
   private buildResumenMensualHtml(ctx: {
     mesNombre: string;
     anio: number;
+    nombreAdjunto?: string;
     totalEsperado: number;
     totalRecaudado: number;
     totalPendiente: number;
@@ -506,6 +507,19 @@ export class NotificacionesService {
       </div>
     </div>`}
 
+    ${ctx.nombreAdjunto ? `
+    <div class="card" style="border-left: 4px solid #10b981;">
+      <div class="section" style="padding: 16px 28px; display: flex; align-items: center; gap: 14px;">
+        <span style="font-size: 26px;">📎</span>
+        <div>
+          <div style="font-weight: 700; color: #1a3a5c; font-size: 14px;">Archivo Excel adjunto incluido</div>
+          <div style="font-size: 13px; color: #4b5563; margin-top: 3px;">
+            Se ha adjuntado el archivo <strong>${ctx.nombreAdjunto}</strong> con el listado detallado de los jugadores morosos de los últimos 2 meses.
+          </div>
+        </div>
+      </div>
+    </div>` : ''}
+
     <div class="footer">
       <p>${this.clubName}${this.clubPhone ? ' | Tel: ' + this.clubPhone : ''}</p>
       <p>Este resumen fue generado autom\u00e1ticamente al cierre del mes.</p>
@@ -541,6 +555,10 @@ export class NotificacionesService {
         porcentaje_cumplimiento: number;
       }>;
     },
+    adjuntoExcel?: {
+      filename: string;
+      buffer: Buffer;
+    },
   ): Promise<void> {
     if (!this.resend) {
       this.logger.warn('Resend no configurado — resumen mensual no enviado');
@@ -553,20 +571,35 @@ export class NotificacionesService {
 
     const mesNombre = MESES[ctx.mes] || `Mes ${ctx.mes}`;
     const subject = `Resumen mensual ${mesNombre} ${ctx.anio} — ${this.clubName}`;
-    const html = this.buildResumenMensualHtml({ ...ctx, mesNombre });
+    const html = this.buildResumenMensualHtml({
+      ...ctx,
+      mesNombre,
+      nombreAdjunto: adjuntoExcel?.filename,
+    });
 
     for (const to of emails) {
       try {
-        const { error } = await this.resend.emails.send({
+        const payload: any = {
           from: this.fromEmail,
           to,
           subject,
           html,
-        });
+        };
+
+        if (adjuntoExcel) {
+          payload.attachments = [
+            {
+              filename: adjuntoExcel.filename,
+              content: adjuntoExcel.buffer,
+            },
+          ];
+        }
+
+        const { error } = await this.resend.emails.send(payload);
         if (error) {
           this.logger.error(`Error enviando resumen mensual a ${to}: ${error.message}`);
         } else {
-          this.logger.log(`Resumen mensual ${mesNombre} ${ctx.anio} enviado a ${to}`);
+          this.logger.log(`Resumen mensual ${mesNombre} ${ctx.anio} con Excel adjunto enviado a ${to}`);
         }
       } catch (err) {
         this.logger.error(`Error enviando resumen mensual a ${to}: ${err.message}`);
